@@ -374,6 +374,7 @@ class Evo_net():
             self.net_list = [[] for x in xrange(self.parameters.population_size)]  # Stores the networks for the genomes
 
     def build_net(self, index):
+        #print index, len(self.genome_list)
         if not self.net_list[index]: #if not already built
             if self.parameters.use_neat:
                 if self.parameters.use_py_neat: #Python NEAT
@@ -425,7 +426,6 @@ class Evo_net():
                     if len(self.fitness_evals[i]) != 0:  # if fitness evals is not empty (wasnt evaluated)
                         if self.parameters.leniency: avg_fitness = max(self.fitness_evals[i])  # Use lenient learner
                         else: avg_fitness = sum(self.fitness_evals[i]) / len(self.fitness_evals[i])
-
                         if self.parameters.use_hall_of_fame and len(self.hof_fitness_evals[0]) != 0:  # Hall of fame fitness adjustments (minus first time
                             avg_fitness = (1.0 - self.parameters.hof_weight) * avg_fitness + self.parameters.hof_weight * self.hof_fitness_evals[i][0]
 
@@ -457,7 +457,7 @@ class Evo_net():
             best = 0; best_sim_index = 0
             for i in range(self.parameters.population_size):
                 if len(self.fitness_evals[i]) != 0:  # if fitness evals is not empty (wasnt evaluated)
-                    if self.parameters.keras_evonet_leniency: avg_fitness = max(self.fitness_evals[i]) #Use lenient learner
+                    if self.parameters.leniency: avg_fitness = max(self.fitness_evals[i]) #Use lenient learner
                     else: avg_fitness = sum(self.fitness_evals[i])/len(self.fitness_evals[i])
                     if avg_fitness > best:
                         best = avg_fitness; best_sim_index = i
@@ -465,7 +465,6 @@ class Evo_net():
         #print best
 
         if self.parameters.baldwin: self.bald.best_sim_index = best_sim_index #Assign the new top simulator #TODO Generalize this to best performing index and ignore if not evaluated
-
 
 class Agent_scout:
     def __init__(self, grid, parameters):
@@ -475,6 +474,7 @@ class Agent_scout:
         self.evo_net = Evo_net(parameters)
         self.perceived_state = None #State of the gridworld as perceived by the agent
         self.split_learner_state = None #Useful for split learner
+        self.fuel = 0
 
 
     def init_agent(self, grid):
@@ -506,6 +506,7 @@ class Agent_scout:
 
     def reset(self, grid):
         self.position = self.init_agent(grid)
+        self.fuel = 0
 
     def take_action(self, net_id):
         #Modify state input to required input format
@@ -566,6 +567,7 @@ class Agent_executioner:
         self.evo_net = Evo_net(parameters)
         self.perceived_state = None #State of the gridworld as perceived by the agent
         self.split_learner_state = None #Useful for split learner
+        self.fuel = 0
 
 
     def init_agent(self, grid):
@@ -597,6 +599,7 @@ class Agent_executioner:
 
     def reset(self, grid):
         self.position = self.init_agent(grid)
+        self.fuel = 0
 
     def take_action(self, net_id):
         #Modify state input to required input format
@@ -785,6 +788,7 @@ class Gridworld:
             elif action == 2: next_pos[0] += 2  # Down
             elif action == 3: next_pos[1] -= 2  # Left
             elif action == 4: next_pos[0] -= 2  # Up
+            if action != 0: agent.fuel -= 0.15/(1.0 * self.parameters.total_steps)
 
             # Computer reward and check illegal moves
             x = next_pos[0]; y = next_pos[1]
@@ -809,6 +813,7 @@ class Gridworld:
             elif action == 2: next_pos[0] += 1  # Down
             elif action == 3: next_pos[1] -= 1  # Left
             elif action == 4: next_pos[0] -= 1  # Up
+            if action != 0: agent.fuel -= 0.3 / (1.0 * self.parameters.total_steps)
 
             # Computer reward and check illegal moves
             x = next_pos[0]; y = next_pos[1]
@@ -956,9 +961,14 @@ class Gridworld:
                     1]) <= self.obs_dist:  # and self.goal_complete[poi_id] == False:
                     soft_stat.append(agent_id)
             if len(soft_stat) >= self.coupling:  # If coupling requirement is met
-                poi.is_observed = True
-                poi.observation_history.append(
-                    soft_stat)  # Store the identity of agents aiding in meeting that tight coupling requirement
+                ig_scheme = True #implements the different reward schemes #1: Order not relevant and is_scouted not required
+                                                                          #2: Order not relevant and is_scouted required
+                                                                          #3: Order relevant and is_scouted required
+                if self.parameters.reward_scheme == 3:
+                    if not poi.is_scouted: ig_scheme = False
+                if ig_scheme:
+                    poi.is_observed = True
+                    poi.observation_history.append(soft_stat)  # Store the identity of agents aiding in meeting that tight coupling requirement
 
     def check_goal_complete(self):
         is_complete = True
@@ -966,15 +976,36 @@ class Gridworld:
             is_complete *= poi.is_observed
         return is_complete
 
-    def get_reward(self):
+    def get_reward(self, teams):
         global_reward = 0 #Global reward obtained
-        for poi in self.poi_list: global_reward += 1.0 * poi.is_observed
+        for poi in self.poi_list:
+            if self.parameters.reward_scheme == 2:
+                global_reward += 1.0 * poi.is_observed * poi.is_scouted
+            else:
+                global_reward += 1.0 * poi.is_observed
+
         global_reward /= self.parameters.num_poi #Scale between 0 and 1
 
         rewards = np.zeros(self.parameters.num_agents_scout + self.parameters.num_agents_executioner) #Rewards decomposed to the team
+        if self.parameters.is_fuel:
+            for i in range((self.parameters.num_agents_scout + self.parameters.num_agents_executioner)):
+                if i < self.parameters.num_agents_scout:
+                    rewards[i] += self.agent_list_scout[i].fuel
+                    global_reward += self.agent_list_scout[i].fuel/self.parameters.num_agents_scout
+                else:
+                    index = i - self.parameters.num_agents_scout
+                    rewards[index] += self.agent_list_executioner[index].fuel
+                    global_reward += self.agent_list_scout[index].fuel/self.parameters.num_agents_executioner
+
         if self.parameters.D_reward: #Difference reward scheme
             for poi in self.poi_list:
-                if poi.is_observed: #If POI observed
+                ig_scheme = False #Controls if POI is observed according to reward scheme requirements
+                if self.parameters.reward_scheme == 2:
+                    if poi.is_observed and poi.is_scouted: ig_scheme = True
+                else:
+                    if poi.is_observed: ig_scheme = True
+
+                if ig_scheme: #If POI observed according to reward scheme requirements
                     #print poi.is_scouted
                     no_reward = False
 
@@ -1145,7 +1176,6 @@ def dev_EvaluateGenomeList_Parallel(genome_list, evaluator, cores=4, display=Tru
     return fitnesses
 
 
-
 def dispGrid(gridworld, state = None, full=True, agent_id = None):
 
 
@@ -1186,7 +1216,6 @@ def dispGrid(gridworld, state = None, full=True, agent_id = None):
         for e in row:
             print e,
         print '\t'
-
 
 def init_rnn(gridworld, hidden_nodes, angled_repr, angle_res, sim_all, hist_len = 3, design = 1):
     model = Sequential()

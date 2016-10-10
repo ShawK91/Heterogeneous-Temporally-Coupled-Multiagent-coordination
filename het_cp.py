@@ -1,5 +1,5 @@
 import numpy as np, math, copy, time
-import MultiNEAT as NEAT
+#import MultiNEAT as NEAT
 import mod_het_cp as mod, sys
 from random import randint, choice
 from copy import deepcopy
@@ -55,7 +55,7 @@ class Py_neat_params:
 class Parameters:
     def __init__(self):
         self.population_size = 100
-        self.D_reward = 1  # D reward scheme
+        self.D_reward = 0  # D reward scheme
         self.grid_row = 15
         self.grid_col = 15
         self.obs_dist = 1  # Observe distance (Radius of POI that agents have to be in for successful observation)
@@ -71,7 +71,11 @@ class Parameters:
         self.wheel_action = 1
         self.use_neat = 1  # Use NEAT VS. Keras based Evolution module
         self.use_py_neat = 0 #Use Python implementation of NEAT
+        self.is_fuel = 1 #Binary deciding whether to have fuel cost as a consideration
 
+        self.reward_scheme = 3 #1: Order not relevant and is_scouted not required
+                               #2: Order not relevant and is_scouted required
+                               #3: Order relevant and is_scouted required
 
 
         #TERTIARY
@@ -212,6 +216,10 @@ def evolve(gridworld, parameters, best_hof_score):
     for i, pool in enumerate(selection_pool): #Equalize the selection pool
         diff = max_pool_size - len(pool)
         if diff != 0:
+            ig_cap = len(pool) / num_evals
+            while diff > ig_cap:
+                selection_pool[i] = np.append(selection_pool[i], np.arange(ig_cap))
+                diff -= ig_cap
             selection_pool[i] = np.append(selection_pool[i], np.arange(diff))
 
 
@@ -240,12 +248,16 @@ def evolve(gridworld, parameters, best_hof_score):
             best_global = global_reward; #Store the best global performance
             if global_reward > best_hof_score: best_team = np.copy(teams) #Store the best team
 
-        #ENCODE FITNESS BACK TO AGENT
+        #ENCODE FITNESS BACK TO AGENT and ALSO consider fuel cost
         for id, agent in enumerate(gridworld.agent_list_scout):
-            agent.evo_net.fitness_evals[teams[id]].append(rewards[id]) #Assign those rewards to the members of the team across the sub-populations
+            ig_reward = rewards[id]
+            #if parameters.is_fuel: ig_reward = rewards[id] + agent.fuel #Fuel cost
+            agent.evo_net.fitness_evals[teams[id]].append(ig_reward) #Assign those rewards to the members of the team across the sub-populations
         for id, agent in enumerate(gridworld.agent_list_executioner):
             index = id+parameters.num_agents_scout #Executioners are listed after scouts in teams and rewards vector
-            agent.evo_net.fitness_evals[teams[index]].append(rewards[index]) #Assign those rewards to the members of the team across the sub-populations
+            ig_reward = rewards[index]
+            #if parameters.is_fuel: ig_reward = rewards[index] + agent.fuel #Fuel cost
+            agent.evo_net.fitness_evals[teams[index]].append(ig_reward) #Assign those rewards to the members of the team across the sub-populations
 
     if parameters.use_hall_of_fame: #HAll of Fame
         update_whole_team_hof = True
@@ -310,7 +322,7 @@ def run_simulation(parameters, gridworld, teams): #Run simulation given a team a
 
         if gridworld.check_goal_complete(): break #If all POI's observed
 
-    rewards, global_reward = gridworld.get_reward()
+    rewards, global_reward = gridworld.get_reward(teams)
     #print rewards
     #rewards -= 0.001 * steps #Time penalty
     return rewards, global_reward
