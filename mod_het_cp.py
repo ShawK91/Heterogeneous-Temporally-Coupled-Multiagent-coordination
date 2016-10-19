@@ -659,6 +659,7 @@ class POI:
         self.observation_history = [] #Track the identity of agents within the coupling requirements at all applicable time steps
         self.is_scouted = False #Found by scout
         self.scout_history = [] #Track which scout scouted it
+        self.activation_time = 0
 
     def init_poi(self, grid):
         start = grid.observe; end = grid.state.shape[0] - grid.observe - 1
@@ -944,13 +945,14 @@ class Gridworld:
     def update_poi_observations(self):
         # Check for credit assignment
         for poi in self.poi_list:  # POI COUPLED
-
+            if self.parameters.is_time_offset: poi.activation_time -= 1 #Decrease POI's activation time
             #Scouts
             soft_stat = []
             for agent_id, agent in enumerate(self.agent_list_scout): #Find all scouts within range
                 if abs(poi.position[0] - agent.position[0]) <= self.obs_dist*2 and abs(poi.position[1] - agent.position[1]) <= self.obs_dist*2:  # and self.goal_complete[poi_id] == False:
                     soft_stat.append(agent_id)
             if len(soft_stat) >= self.coupling:  # If coupling requirement is met
+                if self.parameters.is_time_offset: poi.activation_time = self.parameters.time_offset #Reset activation time
                 poi.is_scouted = True
                 poi.scout_history.append(soft_stat)  # Store the identity of agents aiding in meeting that tight coupling requirement
 
@@ -966,6 +968,8 @@ class Gridworld:
                                                                           #3: Order relevant and is_scouted required
                 if self.parameters.reward_scheme == 3:
                     if not poi.is_scouted: ig_scheme = False
+                if self.parameters.is_time_offset:
+                    if poi.activation_time <= 0: ig_scheme = False #Implement time coupling scheme
                 if ig_scheme:
                     poi.is_observed = True
                     poi.observation_history.append(soft_stat)  # Store the identity of agents aiding in meeting that tight coupling requirement
@@ -994,8 +998,8 @@ class Gridworld:
                     global_reward += self.agent_list_scout[i].fuel/self.parameters.num_agents_scout
                 else:
                     index = i - self.parameters.num_agents_scout
-                    rewards[index] += self.agent_list_executioner[index].fuel
-                    global_reward += self.agent_list_scout[index].fuel/self.parameters.num_agents_executioner
+                    rewards[i] += self.agent_list_executioner[index].fuel
+                    global_reward += self.agent_list_executioner[index].fuel/self.parameters.num_agents_executioner
 
         if self.parameters.D_reward: #Difference reward scheme
             for poi in self.poi_list:

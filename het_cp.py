@@ -55,14 +55,14 @@ class Py_neat_params:
 class Parameters:
     def __init__(self):
         self.population_size = 100
-        self.D_reward = 0  # D reward scheme
+        self.D_reward = 1  # D reward scheme
         self.grid_row = 15
         self.grid_col = 15
         self.obs_dist = 1  # Observe distance (Radius of POI that agents have to be in for successful observation)
         self.coupling = 1  # Number of agents required to simultaneously observe a POI
-        self.total_steps = 30 # Total roaming steps without goal before termination
-        self.num_agents_scout = 1
-        self.num_agents_executioner = 1
+        self.total_steps = 20 # Total roaming steps without goal before termination
+        self.num_agents_scout = 4
+        self.num_agents_executioner = 4
         self.num_poi = 10
         self.angle_res = 45
         self.agent_random = 0
@@ -71,11 +71,15 @@ class Parameters:
         self.wheel_action = 1
         self.use_neat = 1  # Use NEAT VS. Keras based Evolution module
         self.use_py_neat = 0 #Use Python implementation of NEAT
-        self.is_fuel = 1 #Binary deciding whether to have fuel cost as a consideration
+        self.is_fuel = 0 #Binary deciding whether to have fuel cost as a consideration
+        self.is_time_offset = 1 #COntrols whether there is a time-offset or not
+        self.time_offset = 3 #The time-offset / window for observation to happen following scouting
 
         self.reward_scheme = 3 #1: Order not relevant and is_scouted not required
                                #2: Order not relevant and is_scouted required
                                #3: Order relevant and is_scouted required
+
+
 
 
         #TERTIARY
@@ -323,6 +327,7 @@ def run_simulation(parameters, gridworld, teams): #Run simulation given a team a
         if gridworld.check_goal_complete(): break #If all POI's observed
 
     rewards, global_reward = gridworld.get_reward(teams)
+    #print rewards, global_reward
     #print rewards
     #rewards -= 0.001 * steps #Time penalty
     return rewards, global_reward
@@ -379,10 +384,10 @@ if __name__ == "__main__":
         #for agent in gridworld.agent_list: print agent.evo_net.hof_net
         #continue
         if parameters.use_neat and not parameters.use_py_neat :
-            print 'Gen:', gen, ' Baldwin' if parameters.baldwin else ' Darwinian', 'Online' if parameters.online_learning else 'Offline', ' Best g_reward', int(best_global * 100), ' Avg:', int(100 * tracker.avg_fitness)#, ' Delta MPC:', int(tracker.avg_mpc), '+-', int(tracker.mpc_std), 'Elapsed Time: ', elapsed #' Delta generations Survival: '      #for i in range(num_agents): print all_pop[i].delta_age / params.PopulationSize,
+            print 'Gen:', gen, ' D' if parameters.D_reward else ' G',  ' Best g_reward', int(best_global * 100), ' Avg:', int(100 * tracker.avg_fitness)#, ' Delta MPC:', int(tracker.avg_mpc), '+-', int(tracker.mpc_std), 'Elapsed Time: ', elapsed #' Delta generations Survival: '      #for i in range(num_agents): print all_pop[i].delta_age / params.PopulationSize,
             #print
         else:
-            print 'Gen:', gen, ' Baldwin' if parameters.baldwin else ' Darwinian', 'Online' if parameters.online_learning else 'Offline', ' Best g_reward', int(best_global * 100), ' Avg:', int(100 * tracker.avg_fitness), 'Best hof_score: ', best_hof_score
+            print 'Gen:', gen, 'Reward shaping: ',' Difference   ' if parameters.D_reward else ' Global   ', ' Best global', int(best_global * 100), ' Avg:', int(100 * tracker.avg_fitness), 'Best hof_score: ', best_hof_score
             #for i in range(num_agents): print all_pop[i].pop.longest_survivor,
             #print
         continue
