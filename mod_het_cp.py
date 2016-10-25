@@ -469,7 +469,9 @@ class Evo_net():
 class Agent_scout:
     def __init__(self, grid, parameters):
         self.parameters = parameters
-        self.position = self.init_agent(grid)
+        self.spawn_position = self.init_agent(grid)
+        self.position = self.spawn_position[:]
+
         self.action = 0
         self.evo_net = Evo_net(parameters)
         self.perceived_state = None #State of the gridworld as perceived by the agent
@@ -477,7 +479,14 @@ class Agent_scout:
         self.fuel = 0
 
 
-    def init_agent(self, grid):
+
+    def init_agent(self, grid, is_new_epoch=True):
+        if not is_new_epoch: #If not a new epoch and intra epoch (random already initialized)
+            x = self.spawn_position[0]; y = self.spawn_position[1]
+            grid.state[x][y] = 1
+            return [x,y]
+
+
         start = grid.observe;  end = grid.state.shape[0] - grid.observe - 1
         rad = int(grid.dim_row / math.sqrt(3) / 3)
         center = int((start + end) / 2)
@@ -504,8 +513,9 @@ class Agent_scout:
         grid.state[x][y] = 1  # Agent Code
         return [x, y]
 
-    def reset(self, grid):
-        self.position = self.init_agent(grid)
+    def reset(self, grid, is_new_epoch=False):
+        self.spawn_position = self.init_agent(grid, is_new_epoch)
+        self.position = self.spawn_position[:]
         self.fuel = 0
 
     def take_action(self, net_id):
@@ -559,18 +569,27 @@ class Agent_scout:
         state = np.reshape(state, (1, len(state)))
         return state
 
-class Agent_executioner:
+class Agent_service_bot:
     def __init__(self, grid, parameters):
         self.parameters = parameters
-        self.position = self.init_agent(grid)
+        self.spawn_position = self.init_agent(grid)
+        self.position = self.spawn_position[:]
+
         self.action = 0
         self.evo_net = Evo_net(parameters)
         self.perceived_state = None #State of the gridworld as perceived by the agent
         self.split_learner_state = None #Useful for split learner
         self.fuel = 0
+        self.service_cost = 0
 
 
-    def init_agent(self, grid):
+
+    def init_agent(self, grid, is_new_epoch=True):
+        if not is_new_epoch: #If not a new epoch and intra epoch (random already initialized)
+            x = self.spawn_position[0]; y = self.spawn_position[1]
+            grid.state[x][y] = 4
+            return [x,y]
+
         start = grid.observe;  end = grid.state.shape[0] - grid.observe - 1
         rad = int(grid.dim_row / math.sqrt(3) / 3)
         center = int((start + end) / 2)
@@ -597,9 +616,11 @@ class Agent_executioner:
         grid.state[x][y] = 4  # Agent Code
         return [x, y]
 
-    def reset(self, grid):
-        self.position = self.init_agent(grid)
+    def reset(self, grid, is_new_epoch=False):
+        self.spawn_position = self.init_agent(grid, is_new_epoch)
+        self.position = self.spawn_position[:]
         self.fuel = 0
+        self.service_cost = 0
 
     def take_action(self, net_id):
         #Modify state input to required input format
@@ -654,14 +675,21 @@ class Agent_executioner:
 
 class POI:
     def __init__(self, grid):
-        self.position = self.init_poi(grid) #Initialize POI object
+        self.spawn_position = self.init_poi(grid)
+        self.position = self.spawn_position[:]
         self.is_observed = False #Check if goal is complete
         self.observation_history = [] #Track the identity of agents within the coupling requirements at all applicable time steps
         self.is_scouted = False #Found by scout
         self.scout_history = [] #Track which scout scouted it
-        self.activation_time = 0
+        self.activation_time = -10
+        self.spawn_position = self.position[:]
 
-    def init_poi(self, grid):
+    def init_poi(self, grid, is_new_epoch=True):
+        if not is_new_epoch: #If not a new epoch and intra epoch (random already initialized)
+            x = self.spawn_position[0]; y = self.spawn_position[1]
+            grid.state[x][y] = 2
+            return [x,y]
+
         start = grid.observe; end = grid.state.shape[0] - grid.observe - 1
         rad = int(grid.dim_row / math.sqrt(3) / 2)
         center = int((start + end) / 2)
@@ -706,17 +734,14 @@ class POI:
                 trial += 1
 
 
-
-
-
         grid.state[x][y] = 2
-        #grid.poi_pos.append([x, y])
         return [x,y]
 
 
 
-    def reset(self, grid):
-        self.position = self.init_poi(grid)
+    def reset(self, grid, is_new_epoch=False):
+        self.spawn_position = self.init_poi(grid, is_new_epoch)
+        self.position = self.spawn_position[:]
         self.is_observed = False
         self.observation_history = []
         self.is_scouted = False #Found by scout
@@ -726,12 +751,12 @@ class Gridworld:
     def __init__(self, parameters):
         self.parameters = parameters
         self.observe = 1; self.dim_row = parameters.grid_row; self.dim_col = parameters.grid_col; self.poi_rand = parameters.poi_random; self.agent_rand = parameters.agent_random
-        self.num_agents_scout = parameters.num_agents_scout; self.num_agents_executioner = parameters.num_agents_executioner; self.num_poi = parameters.num_poi; self.angle_res = parameters.angle_res #Angle resolution
+        self.num_agents_scout = parameters.num_agents_scout; self.num_agents_service_bot = parameters.num_agents_service_bot; self.num_poi = parameters.num_poi; self.angle_res = parameters.angle_res #Angle resolution
         self.coupling = parameters.coupling #coupling requirement
         self.obs_dist = parameters.obs_dist #Observation radius requirements
 
         #Resettable stuff
-        self.state = np.zeros((self.dim_row + self.observe*2, self.dim_col + self.observe*2)) #EMPTY SPACE = 0, #POI = 2, #WALL = 3, AGENT_Scout = 1, AGENT_executioner = 4
+        self.state = np.zeros((self.dim_row + self.observe*2, self.dim_col + self.observe*2)) #EMPTY SPACE = 0, #POI = 2, #WALL = 3, AGENT_Scout = 1, AGENT_service_bot = 4
         self.init_wall() #initialize wall
 
         self.poi_list = [] #List of POI objects
@@ -740,8 +765,8 @@ class Gridworld:
 
         self.agent_list_scout = []
         for i in range(self.num_agents_scout): self.agent_list_scout.append(Agent_scout(self, parameters))
-        self.agent_list_executioner = []
-        for i in range(self.num_agents_executioner): self.agent_list_executioner.append(Agent_executioner(self, parameters))
+        self.agent_list_service_bot = []
+        for i in range(self.num_agents_service_bot): self.agent_list_service_bot.append(Agent_service_bot(self, parameters))
 
     def init_wall(self):
         for i in range(self.observe):
@@ -751,6 +776,16 @@ class Gridworld:
             for y in range(self.state.shape[1]):
                 self.state[i][y] = 3
                 self.state[self.state.shape[0] - 1-i][y] = 3
+
+    def new_epoch_reset(self):
+        self.state = np.zeros((self.dim_row + self.observe*2, self.dim_col + self.observe*2)) #EMPTY SPACE = 0, AGENT = 1, #POI = 2, WALL = 3
+        self.init_wall()
+        for poi in self.poi_list: poi.reset(self, is_new_epoch=True)
+        for agent_id, agent in enumerate(self.agent_list_scout):
+            agent.reset(self, is_new_epoch=True)
+        for agent_id, agent in enumerate(self.agent_list_service_bot):
+            agent.reset(self, is_new_epoch=True)
+
 
     def reset(self, teams, agent_sub_pop = None, agent_index = None):
         self.state = np.zeros((self.dim_row + self.observe*2, self.dim_col + self.observe*2)) #EMPTY SPACE = 0, AGENT = 1, #POI = 2, WALL = 3
@@ -769,7 +804,7 @@ class Gridworld:
             if not self.parameters.online_learning: #Offline learning
                 agent.evo_net.bald.offline_train(net_index)
 
-        for agent_id, agent in enumerate(self.agent_list_executioner):
+        for agent_id, agent in enumerate(self.agent_list_service_bot):
             agent.reset(self)
             if self.parameters.use_hall_of_fame:
                 if agent_id != agent_sub_pop: continue #if not the agent being tested iin hof team, continue
@@ -807,7 +842,7 @@ class Gridworld:
             self.state[next_pos[0]][next_pos[1]] = 1 #Encode newly occupied position in the state template
             agent.position[0] = next_pos[0]; agent.position[1] = next_pos[1] #Update new positions for the agent object
 
-        for agent in self.agent_list_executioner: #Move and agent
+        for agent in self.agent_list_service_bot: #Move and agent
             action = agent.action
             next_pos = np.copy(agent.position)
             if action == 1: next_pos[1] += 1  # Right
@@ -819,7 +854,7 @@ class Gridworld:
             # Computer reward and check illegal moves
             x = next_pos[0]; y = next_pos[1]
             if self.state[x][y] == 3: next_pos = np.copy(agent.position) #Reset if hit wall
-            if self.state[x][y] == 4 and action != 0: next_pos = np.copy(agent.position) #Reset if other Executioner Agent and action != 0
+            if self.state[x][y] == 4 and action != 0: next_pos = np.copy(agent.position) #Reset if other service_bot Agent and action != 0
 
             # Update gridworld and agent position
             self.state[agent.position[0]][agent.position[1]] = 0 #Encode newly freed position in the state template
@@ -833,11 +868,11 @@ class Gridworld:
             if self.parameters.sensor_avg:  # Average distance
                 dist_poi_list = [[] for x in xrange(360 / self.angle_res)]
                 dist_agent_list_scout = [[] for x in xrange(360 / self.angle_res)]
-                dist_agent_list_executioner = [[] for x in xrange(360 / self.angle_res)]
+                dist_agent_list_service_bot = [[] for x in xrange(360 / self.angle_res)]
 
             for poi in self.poi_list:
                 if not poi.is_observed:  # For all POI's that are still active
-                    if poi.is_scouted or is_Scout: #Scout sees all but executioner only sees what has been found
+                    if poi.is_scouted or is_Scout: #Scout sees all but service_bot only sees what has been found
                         x1 = poi.position[0] - agent.position[0];
                         x2 = -1
                         y1 = poi.position[1] - agent.position[1];
@@ -860,7 +895,7 @@ class Gridworld:
                     y2 = 0
                     angle, dist = self.get_angle_dist(x1, y1, x2, y2)
                     bracket = int(angle / self.angle_res)
-                    state[bracket][2] += 1.0 / (self.num_agents_executioner + self.num_agents_scout - 1)  # Add agent
+                    state[bracket][2] += 1.0 / (self.num_agents_service_bot + self.num_agents_scout - 1)  # Add agent
                     if self.parameters.sensor_avg:
                         dist_agent_list_scout[bracket].append(dist / (2.0 * self.dim_col))
                     else:  # Min distance
@@ -868,7 +903,7 @@ class Gridworld:
                             3] == 0:  # Update min distance from other agent
                             state[bracket][3] = dist / (2.0 * self.dim_col)
 
-            for other_agent in self.agent_list_executioner:
+            for other_agent in self.agent_list_service_bot:
                 if other_agent != agent:  # FOR ALL AGENTS MINUS MYSELF
                     x1 = other_agent.position[0] - agent.position[0];
                     x2 = -1
@@ -876,9 +911,9 @@ class Gridworld:
                     y2 = 0
                     angle, dist = self.get_angle_dist(x1, y1, x2, y2)
                     bracket = int(angle / self.angle_res)
-                    state[bracket][4] += 1.0 / (self.num_agents_executioner + self.num_agents_scout - 1)  # Add agent
+                    state[bracket][4] += 1.0 / (self.num_agents_service_bot + self.num_agents_scout - 1)  # Add agent
                     if self.parameters.sensor_avg:
-                        dist_agent_list_executioner[bracket].append(dist / (2.0 * self.dim_col))
+                        dist_agent_list_service_bot[bracket].append(dist / (2.0 * self.dim_col))
                     else:  # Min distance
                         if state[bracket][5] > dist / (2.0 * self.dim_col) or state[bracket][
                             3] == 0:  # Update min distance from other agent
@@ -890,7 +925,7 @@ class Gridworld:
                     except: None
                     try: state[bracket][3] = sum(dist_agent_list_scout[bracket]) / len(dist_agent_list_scout[bracket])  # Encode average agent distance
                     except: None
-                    try: state[bracket][5] = sum(dist_agent_list_executioner[bracket]) / len(dist_agent_list_executioner[bracket])  # Encode average agent distance
+                    try: state[bracket][5] = sum(dist_agent_list_service_bot[bracket]) / len(dist_agent_list_service_bot[bracket])  # Encode average agent distance
                     except: None
             state = np.reshape(state, (1, 360 / self.angle_res * 6))  # Flatten array
 
@@ -956,12 +991,13 @@ class Gridworld:
                 poi.is_scouted = True
                 poi.scout_history.append(soft_stat)  # Store the identity of agents aiding in meeting that tight coupling requirement
 
-            #Executioners
+            #Service_bots
             soft_stat = []
-            for agent_id, agent in enumerate(self.agent_list_executioner):  # Find all scouts within range
+            for agent_id, agent in enumerate(self.agent_list_service_bot):  # Find all service bots within range
                 if abs(poi.position[0] - agent.position[0]) <= self.obs_dist and abs(poi.position[1] - agent.position[
-                    1]) <= self.obs_dist:  # and self.goal_complete[poi_id] == False:
+                    1]) <= self.obs_dist:
                     soft_stat.append(agent_id)
+                    agent.service_cost -= 0.1 / (1.0 * self.parameters.total_steps)
             if len(soft_stat) >= self.coupling:  # If coupling requirement is met
                 ig_scheme = True #implements the different reward schemes #1: Order not relevant and is_scouted not required
                                                                           #2: Order not relevant and is_scouted required
@@ -969,7 +1005,11 @@ class Gridworld:
                 if self.parameters.reward_scheme == 3:
                     if not poi.is_scouted: ig_scheme = False
                 if self.parameters.is_time_offset:
-                    if poi.activation_time <= 0: ig_scheme = False #Implement time coupling scheme
+                    if self.parameters.is_hard_time_offset:
+                        if poi.activation_time != 0: ig_scheme = False
+                    else:
+                        if poi.activation_time <= 0: ig_scheme = False #Implement time coupling scheme
+
                 if ig_scheme:
                     poi.is_observed = True
                     poi.observation_history.append(soft_stat)  # Store the identity of agents aiding in meeting that tight coupling requirement
@@ -990,16 +1030,21 @@ class Gridworld:
 
         global_reward /= self.parameters.num_poi #Scale between 0 and 1
 
-        rewards = np.zeros(self.parameters.num_agents_scout + self.parameters.num_agents_executioner) #Rewards decomposed to the team
+        rewards = np.zeros(self.parameters.num_agents_scout + self.parameters.num_agents_service_bot) #Rewards decomposed to the team
         if self.parameters.is_fuel:
-            for i in range((self.parameters.num_agents_scout + self.parameters.num_agents_executioner)):
+            for i in range((self.parameters.num_agents_scout + self.parameters.num_agents_service_bot)):
                 if i < self.parameters.num_agents_scout:
                     rewards[i] += self.agent_list_scout[i].fuel
                     global_reward += self.agent_list_scout[i].fuel/self.parameters.num_agents_scout
                 else:
                     index = i - self.parameters.num_agents_scout
-                    rewards[i] += self.agent_list_executioner[index].fuel
-                    global_reward += self.agent_list_executioner[index].fuel/self.parameters.num_agents_executioner
+                    rewards[i] += self.agent_list_service_bot[index].fuel
+                    global_reward += self.agent_list_service_bot[index].fuel/self.parameters.num_agents_service_bot
+
+        if self.parameters.is_service_cost:
+            for i in range(self.parameters.num_agents_service_bot):
+                rewards[i] += self.agent_list_service_bot[i].service_cost
+                global_reward += self.agent_list_service_bot[i].service_cost/self.parameters.num_agents_service_bot
 
         if self.parameters.D_reward: #Difference reward scheme
             for poi in self.poi_list:
@@ -1013,13 +1058,13 @@ class Gridworld:
                     #print poi.is_scouted
                     no_reward = False
 
-                    # Check if over-observed (Executioner)
+                    # Check if over-observed (service_bot)
                     for ids in poi.observation_history:
                         if len(ids) > self.parameters.coupling:  # Only if it's observed by exactly the numbers needed
                             no_reward = True;
                             break;
 
-                    # Executioners rewards
+                    # service_bots rewards
                     if not no_reward:
                         for agent_id in poi.observation_history[0]:
                             rewards[self.num_agents_scout+ agent_id] += 1.0 / self.parameters.num_poi  # Reward the first group of agents to get there
@@ -1057,7 +1102,7 @@ class statistics(): #Tracker
             self.save_csv(generation)
 
     def add_mpc(self, gridworld, parameters):
-        all_mpc = np.zeros(parameters.num_agents_scout + parameters.num_agents_executioner)
+        all_mpc = np.zeros(parameters.num_agents_scout + parameters.num_agents_service_bot)
         for id, agent in enumerate(gridworld.agent_list): all_mpc[id] = agent.evo_net.delta_mpc
         self.avg_mpc = np.average(all_mpc) #Average mpc
         self.mpc_std = np.std(all_mpc)
