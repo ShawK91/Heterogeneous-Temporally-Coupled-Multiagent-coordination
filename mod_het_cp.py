@@ -333,7 +333,7 @@ class Evo_net():
                 self.net_list = [[] for x in xrange(len(self.genome_list))] #Stores the networks for the genomes
                 self.hof_fitness_evals = [[] for x in xrange(len(self.genome_list))]
 
-            else:
+            else: #C++ NEAT
                 seed = 0 if (parameters.params.evo_hidden == 0) else 1  # Controls sees based on genome initialization
                 g = NEAT.Genome(0, parameters.evo_input_size, parameters.params.evo_hidden, 5, False, NEAT.ActivationFunction.UNSIGNED_SIGMOID,
                                 NEAT.ActivationFunction.UNSIGNED_SIGMOID, seed, parameters.params)  # Constructs genome
@@ -349,6 +349,7 @@ class Evo_net():
                 self.oldest_genome_id = 0
                 self.youngest_genome_id = 0
                 self.delta_age = self.oldest_genome_id - self.youngest_genome_id
+                self.test_net = NEAT.NeuralNetwork()
         else:
             self.pop = Population(parameters.evo_input_size, parameters.keras_evonet_hnodes, 5, parameters.population_size)
             self.fitness_evals = [[] for x in xrange(parameters.population_size)] #Controls fitnesses calculations through an iteration
@@ -413,7 +414,7 @@ class Evo_net():
             state = np.reshape(state, (1, len(state)))
             scores = self.net_list[net_id].predict(state)[0]
         if self.parameters.wheel_action and sum(scores) != 0: action = roulette_wheel(scores)
-        elif sum(scores) != 0: action = np.argmax(scores)
+        elif sum(scores) != 0 and len(set(scores)) != 1: action = np.argmax(scores)
         else: action = randint(0,4)
 
         return action
@@ -467,10 +468,11 @@ class Evo_net():
         if self.parameters.baldwin: self.bald.best_sim_index = best_sim_index #Assign the new top simulator #TODO Generalize this to best performing index and ignore if not evaluated
 
 class Agent_scout:
-    def __init__(self, grid, parameters):
+    def __init__(self, grid, parameters, team_role_index):
         self.parameters = parameters
         self.spawn_position = self.init_agent(grid)
         self.position = self.spawn_position[:]
+        self.team_role_index = team_role_index
 
         self.action = 0
         self.evo_net = Evo_net(parameters)
@@ -517,6 +519,48 @@ class Agent_scout:
         self.spawn_position = self.init_agent(grid, is_new_epoch)
         self.position = self.spawn_position[:]
         self.fuel = 0
+
+    def take_action_test(self):
+        #Modify state input to required input format
+        if self.parameters.baldwin:
+            if self.parameters.split_learner: padded_state = self.pad_state(self.split_learner_state)
+            else: padded_state = self.pad_state(self.perceived_state)
+            evo_input = self.evo_net.bald.get_evo_input(padded_state)  # Hidden nodes from simulator
+            if self.parameters.augmented_input:
+                #if self.parameters.split_learner: evo_input = np.append(evo_input, self.split_learner_state.flatten())  # Augment input with state info
+                evo_input = np.append(evo_input, self.perceived_state.flatten())  # Augment input with state info
+        else: #Darwin
+            if self.parameters.split_learner:
+                evo_input = np.append(self.perceived_state, self.split_learner_state)
+                #evo_input = np.reshape(self.perceived_state, (self.perceived_state.shape[1]))
+            else:
+                evo_input = np.reshape(self.perceived_state, (self.perceived_state.shape[1]))  # State input only (Strictly Darwinian approach)
+
+        #Run test evonet and return action
+        scores = [] #Probability output for five action choices
+        if self.parameters.use_neat:
+            if self.parameters.use_py_neat:  # Python NEAT
+                scores = self.evo_net.test_net.serial_activate(evo_input)
+
+            else: #C++ NEAT
+                self.evo_net.test_net.Flush()
+                self.evo_net.test_net.Input(evo_input)  # can input numpy arrays, too for some reason only np.float64 is supported
+                self.evo_net.test_net.Activate()
+                for i in range(5):
+                    if not math.isnan(1 * self.evo_net.test_net.Output()[i]):
+                        scores.append(1 * self.evo_net.test_net.Output()[i])
+                    else:
+                        scores.append(0)
+        else: #Use keras Evo-net
+            state = np.reshape(evo_input, (1, len(evo_input)))
+            scores = self.evo_net.test_net.predict(state)[0]
+        #if self.parameters.wheel_action and sum(scores) != 0: action = roulette_wheel(scores)
+        if sum(scores) != 0 and len(set(scores)) != 1: action = np.argmax(scores)
+        else: action = randint(0,4)
+        #action = np.argmax(scores)
+
+        self.action = action
+
 
     def take_action(self, net_id):
         #Modify state input to required input format
@@ -570,10 +614,11 @@ class Agent_scout:
         return state
 
 class Agent_service_bot:
-    def __init__(self, grid, parameters):
+    def __init__(self, grid, parameters, team_role_index):
         self.parameters = parameters
         self.spawn_position = self.init_agent(grid)
         self.position = self.spawn_position[:]
+        self.team_role_index = team_role_index
 
         self.action = 0
         self.evo_net = Evo_net(parameters)
@@ -581,6 +626,7 @@ class Agent_service_bot:
         self.split_learner_state = None #Useful for split learner
         self.fuel = 0
         self.service_cost = 0
+
 
 
 
@@ -593,6 +639,13 @@ class Agent_service_bot:
         start = grid.observe;  end = grid.state.shape[0] - grid.observe - 1
         rad = int(grid.dim_row / math.sqrt(3) / 3)
         center = int((start + end) / 2)
+
+        if self.parameters.domain_setup == 1:
+            x = 12; y = 3
+
+
+
+
         if grid.agent_rand:
             while True:
                 x = randint(center - rad, center + rad)
@@ -638,6 +691,51 @@ class Agent_service_bot:
             else:
                 evo_input = np.reshape(self.perceived_state, (self.perceived_state.shape[1]))  # State input only (Strictly Darwinian approach)
         self.action = self.evo_net.run_evo_net(net_id, evo_input) #Take action
+
+    def take_action_test(self):
+        # Modify state input to required input format
+        if self.parameters.baldwin:
+            if self.parameters.split_learner:
+                padded_state = self.pad_state(self.split_learner_state)
+            else:
+                padded_state = self.pad_state(self.perceived_state)
+            evo_input = self.evo_net.bald.get_evo_input(padded_state)  # Hidden nodes from simulator
+            if self.parameters.augmented_input:
+                # if self.parameters.split_learner: evo_input = np.append(evo_input, self.split_learner_state.flatten())  # Augment input with state info
+                evo_input = np.append(evo_input, self.perceived_state.flatten())  # Augment input with state info
+        else:  # Darwin
+            if self.parameters.split_learner:
+                evo_input = np.append(self.perceived_state, self.split_learner_state)
+                # evo_input = np.reshape(self.perceived_state, (self.perceived_state.shape[1]))
+            else:
+                evo_input = np.reshape(self.perceived_state, (
+                self.perceived_state.shape[1]))  # State input only (Strictly Darwinian approach)
+
+        # Run test evonet and return action
+        scores = []  # Probability output for five action choices
+        if self.parameters.use_neat:
+            if self.parameters.use_py_neat:  # Python NEAT
+                scores = self.evo_net.test_net.serial_activate(evo_input)
+
+            else:  # C++ NEAT
+                self.evo_net.test_net.Flush()
+                self.evo_net.test_net.Input(
+                    evo_input)  # can input numpy arrays, too for some reason only np.float64 is supported
+                self.evo_net.test_net.Activate()
+                for i in range(5):
+                    if not math.isnan(1 * self.evo_net.test_net.Output()[i]):
+                        scores.append(1 * self.evo_net.test_net.Output()[i])
+                    else:
+                        scores.append(0)
+        else:  # Use keras Evo-net
+            state = np.reshape(evo_input, (1, len(evo_input)))
+            scores = self.evo_net.test_net.predict(state)[0]
+        #if self.parameters.wheel_action and sum(scores) != 0: action = roulette_wheel(scores)
+        if sum(scores) != 0 and len(set(scores)) != 1: action = np.argmax(scores)
+        else: action = randint(0,4)
+        #action = np.argmax(scores)
+
+        self.action = action
 
     def referesh(self, net_id, grid):
         if not self.parameters.baldwin: #In case of Darwin
@@ -758,15 +856,16 @@ class Gridworld:
         #Resettable stuff
         self.state = np.zeros((self.dim_row + self.observe*2, self.dim_col + self.observe*2)) #EMPTY SPACE = 0, #POI = 2, #WALL = 3, AGENT_Scout = 1, AGENT_service_bot = 4
         self.init_wall() #initialize wall
+        self.epoch_best_team = None
 
         self.poi_list = [] #List of POI objects
         for i in range(self.num_poi):
             self.poi_list.append(POI(self))
 
         self.agent_list_scout = []
-        for i in range(self.num_agents_scout): self.agent_list_scout.append(Agent_scout(self, parameters))
+        for i in range(self.num_agents_scout): self.agent_list_scout.append(Agent_scout(self, parameters, i))
         self.agent_list_service_bot = []
-        for i in range(self.num_agents_service_bot): self.agent_list_service_bot.append(Agent_service_bot(self, parameters))
+        for i in range(self.num_agents_service_bot): self.agent_list_service_bot.append(Agent_service_bot(self, parameters, i))
 
     def init_wall(self):
         for i in range(self.observe):
@@ -780,12 +879,12 @@ class Gridworld:
     def new_epoch_reset(self):
         self.state = np.zeros((self.dim_row + self.observe*2, self.dim_col + self.observe*2)) #EMPTY SPACE = 0, AGENT = 1, #POI = 2, WALL = 3
         self.init_wall()
+        self.epoch_best_team = None
         for poi in self.poi_list: poi.reset(self, is_new_epoch=True)
         for agent_id, agent in enumerate(self.agent_list_scout):
             agent.reset(self, is_new_epoch=True)
         for agent_id, agent in enumerate(self.agent_list_service_bot):
             agent.reset(self, is_new_epoch=True)
-
 
     def reset(self, teams, agent_sub_pop = None, agent_index = None):
         self.state = np.zeros((self.dim_row + self.observe*2, self.dim_col + self.observe*2)) #EMPTY SPACE = 0, AGENT = 1, #POI = 2, WALL = 3
@@ -1014,6 +1113,45 @@ class Gridworld:
                     poi.is_observed = True
                     poi.observation_history.append(soft_stat)  # Store the identity of agents aiding in meeting that tight coupling requirement
 
+    #Test
+    def test_update_poi_observations(self):
+        # Check for credit assignment
+        for poi in self.poi_list:  # POI COUPLED
+            if self.parameters.is_time_offset: poi.activation_time -= 1 #Decrease POI's activation time
+
+            #Scouts
+            soft_stat = []
+            for agent_id, agent in enumerate(self.agent_list_scout): #Find all scouts within range
+                if abs(poi.position[0] - agent.position[0]) <= self.obs_dist*2 and abs(poi.position[1] - agent.position[1]) <= self.obs_dist*2:  # and self.goal_complete[poi_id] == False:
+                    soft_stat.append(agent_id)
+            if len(soft_stat) >= self.coupling:  # If coupling requirement is met
+                if self.parameters.is_time_offset: poi.activation_time = self.parameters.time_offset #Reset activation time
+                poi.is_scouted = True
+                poi.scout_history.append(soft_stat)  # Store the identity of agents aiding in meeting that tight coupling requirement
+
+            #Service_bots
+            soft_stat = []
+            for agent_id, agent in enumerate(self.agent_list_service_bot):  # Find all service bots within range
+                if abs(poi.position[0] - agent.position[0]) <= self.obs_dist and abs(poi.position[1] - agent.position[
+                    1]) <= self.obs_dist:
+                    soft_stat.append(agent_id)
+                    agent.service_cost -= 0.1 / (1.0 * self.parameters.total_steps)
+            if len(soft_stat) >= self.coupling:  # If coupling requirement is met
+                ig_scheme = True #implements the different reward schemes #1: Order not relevant and is_scouted not required
+                                                                          #2: Order not relevant and is_scouted required
+                                                                          #3: Order relevant and is_scouted required
+                if self.parameters.reward_scheme == 3:
+                    if not poi.is_scouted: ig_scheme = False
+                if self.parameters.is_time_offset:
+                    if self.parameters.is_hard_time_offset:
+                        if poi.activation_time != 0: ig_scheme = False
+                    else:
+                        if poi.activation_time <= 0: ig_scheme = False #Implement time coupling scheme
+
+                if ig_scheme:
+                    poi.is_observed = True
+                    poi.observation_history.append(soft_stat)  # Store the identity of agents aiding in meeting that tight coupling requirement
+
     def check_goal_complete(self):
         is_complete = True
         for poi in self.poi_list:
@@ -1064,7 +1202,7 @@ class Gridworld:
                             no_reward = True;
                             break;
 
-                    # service_bots rewards
+                    # Service_bots rewards
                     if not no_reward:
                         for agent_id in poi.observation_history[0]:
                             rewards[self.num_agents_scout+ agent_id] += 1.0 / self.parameters.num_poi  # Reward the first group of agents to get there
@@ -1086,6 +1224,53 @@ class Gridworld:
             rewards += global_reward  # Global reward scheme
 
         return rewards, global_reward
+
+    def poi_move(self):
+        for poi in self.poi_list:
+            if random.random() < 1:
+                action = randint(1,4)
+                next_pos = np.copy(poi.position)
+                if action == 1:
+                    next_pos[1] += 1  # Right
+                elif action == 2:
+                    next_pos[0] += 1  # Down
+                elif action == 3:
+                    next_pos[1] -= 1  # Left
+                elif action == 4:
+                    next_pos[0] -= 1  # Up
+
+                # Computer reward and check illegal moves
+                x = next_pos[0];
+                y = next_pos[1]
+                if self.state[x][y] == 3: next_pos = np.copy(poi.position)  # Reset if hit wall
+
+                # Update gridworld and agent position
+                self.state[poi.position[0]][poi.position[1]] = 0  # Encode newly freed position in the state template
+                self.state[next_pos[0]][next_pos[1]] = 2  # Encode newly occupied position in the state template
+                poi.position[0] = next_pos[0];
+                poi.position[1] = next_pos[1]  # Update new positions for the agent object
+
+    def save_best_team(self):
+        if not os.path.exists('Best_team'):
+            os.makedirs('Best_team')
+        for i, member_id in enumerate(self.epoch_best_team):
+            if i < self.num_agents_scout: #For Scout agents
+                 self.agent_list_scout[i].evo_net.net_list[member_id].Save('Best_team/' + 'Scout_' + str(i))
+            else:
+                index = i - self.num_agents_scout
+                self.agent_list_service_bot[index].evo_net.net_list[member_id].Save('Best_team/' + 'Service_bot_' + str(index))
+
+    def load_test_policies(self):
+        for i, agent in enumerate(self.agent_list_scout):
+            is_success = agent.evo_net.test_net.Load('Best_team/' + 'Scout_' + str(i))
+            if is_success != True:
+                print 'Trained Netword Loading failed'
+                sys.exit()
+        for i, agent in enumerate(self.agent_list_service_bot):
+            is_success = agent.evo_net.test_net.Load('Best_team/' + 'Service_bot_' + str(i))
+            if is_success != True:
+                print 'Trained Netword Loading failed'
+                sys.exit()
 
 class statistics(): #Tracker
     def __init__(self):
@@ -1224,6 +1409,169 @@ def dev_EvaluateGenomeList_Parallel(genome_list, evaluator, cores=4, display=Tru
 
     return fitnesses
 
+def visualize_trajectory(filename = 'trajectory.csv'):
+    import Tkinter as tk
+    #from math import *
+
+    def get_triangle_points(scale=0.1):
+        point0 = [0, 0]
+        point1 = [scale * (math.cos(math.radians(120)) - 1), scale * (math.sin(math.radians(120)))]
+        point2 = [scale * (math.cos(math.radians(240)) - 1), scale * (math.sin(math.radians(240)))]
+        return [point0, point1, point2]
+
+    def get_line_points():
+        return [[0., 0.], [1., 0.]]
+
+    def get_circle_points(radius=2):
+        return [[radius, radius], [-radius, -radius]]
+
+    def scale_rotate_points(point_arr, vector):
+        transformed_point_arr = []
+
+        for point in point_arr:
+            transformed_point_arr.append([
+                point[0] * vector[0] - point[1] * vector[1],
+                point[0] * vector[1] + point[1] * vector[0]
+            ])
+
+        return transformed_point_arr
+
+    def translate_points(point_arr, vector):
+        transformed_point_arr = []
+
+        for point in point_arr:
+            transformed_point_arr.append([
+                point[0] + vector[0],
+                point[1] + vector[1]
+            ])
+
+        return transformed_point_arr
+
+    def transform_points(point_arr, transform):
+        transformed_point_arr = []
+
+        for point in point_arr:
+            transformed_point_arr.append([
+                point[0] * transform[0][0] + point[1] * transform[0][1] + transform[0][2],
+                point[0] * transform[1][0] + point[1] * transform[1][1] + transform[1][2],
+            ])
+
+        return transformed_point_arr
+
+    class Path:
+
+        def __init__(self, position_arr=[], color="black"):
+            self.position_arr = position_arr
+            self.color = color
+
+        def get_position(self, index):
+            return self.position_arr[index]
+
+    class Visualizer:
+
+        def __init__(self):
+            self.path_arr = []
+            self.spot_arr = []
+            self.time_index = 0
+            self.transform = [[1, 0, 0],
+                              [0, -1, 200],
+                              [0, 0, 1]]  # stored in rows
+            self.root = None
+            self.canvas = None
+            self.max_time_index = 0
+
+        def create_path(self, position_arr, color="black"):
+            self.path_arr.append(Path(position_arr, color))
+            self.max_time_index = len(position_arr) - 1
+
+        def create_spot(self, spot):
+            self.spot_arr.append(spot)
+
+        def run(self, width=200, height=200, time=0):
+            self.transform[1][2] = height
+
+            self.root = tk.Tk()
+            self.root.bind("<Return>", self.increment_time)
+            self.root.bind("<BackSpace>", self.decrement_time)
+
+            self.canvas = tk.Canvas(self.root, width=width, height=height)
+            self.canvas.pack()
+
+            self.update_canvas()
+
+            self.root.mainloop()
+
+        def draw_path_step(self, path, time_index):
+            step_start = path.get_position(time_index - 1)
+            step_stop = path.get_position(time_index)
+            step_change = [
+                step_stop[0] - step_start[0],
+                step_stop[1] - step_start[1]
+            ]
+
+            arrow_line = get_line_points()
+            arrow_line = scale_rotate_points(arrow_line, step_change)
+            arrow_line = translate_points(arrow_line, step_start)
+            arrow_line = transform_points(arrow_line, self.transform)
+            self.canvas.create_line(arrow_line, fill=path.color)
+
+            if self.time_index == time_index:
+                arrow_tip = get_triangle_points()
+                arrow_tip = scale_rotate_points(arrow_tip, step_change)
+                arrow_tip = translate_points(arrow_tip, step_stop)
+                arrow_tip = transform_points(arrow_tip, self.transform)
+                self.canvas.create_polygon(arrow_tip, fill=path.color)
+
+        def draw_spot(self, spot):
+            circle = get_circle_points(radius=3)
+            circle = translate_points(circle, spot)
+            circle = transform_points(circle, self.transform)
+            self.canvas.create_oval(circle, fill="black")
+
+        def update_canvas(self):
+            self.canvas.delete(tk.ALL)
+
+            for spot in self.spot_arr:
+                self.draw_spot(spot)
+
+            for time in range(self.time_index):
+                for path in self.path_arr:
+                    self.draw_path_step(path, time + 1)
+
+            self.root.update_idletasks()
+
+        def increment_time(self, event):
+            if self.time_index < self.max_time_index:
+                self.time_index += 1
+                self.update_canvas()
+
+        def decrement_time(self, event):
+            if self.time_index > 0:
+                self.time_index -= 1
+                self.update_canvas()
+
+    def csv_trajectory_parser(filename):
+        #Trajectory CSV Parser
+        trajectory = np.loadtxt(filename, delimiter=',')
+        path = []
+        for i in range(len(trajectory[0])/2): #For each agent (two rows)
+            element_path = []
+            for time in range(len(trajectory)):
+                element_path.append([trajectory[time][2*i], trajectory[time][i+1]])
+            path.append(element_path)
+        return path
+
+    v = Visualizer()
+    all_paths = csv_trajectory_parser(filename)
+    for path in all_paths:
+        v.create_path(path)
+
+
+    #v.create_path([[1., 10.], [30., 30.], [21., 45.]], 'blue')
+    #v.create_path([[10., 10.], [10., 30.], [40., 40.]], 'red')
+
+    v.create_spot([1.0, 1.0])
+    v.run()
 
 def dispGrid(gridworld, state = None, full=True, agent_id = None):
 
@@ -1316,7 +1664,6 @@ def save_model_architecture(qmodel, foldername = '/Models/'):
     output_stream = open("Models/architecture.yaml", "w")
     yaml.dump(yaml_string, output_stream)#, default_flow_style=False)
 
-
 def load_model(foldername = 'Models/'):
     import copy
     q_model = []
@@ -1347,9 +1694,6 @@ def roulette_wheel(scores):
         counter += scores[i]
         if rand < counter:
             return i
-
-
-
 
 
 

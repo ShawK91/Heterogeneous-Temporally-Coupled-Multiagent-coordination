@@ -2,8 +2,9 @@ import numpy as np, math, copy, time
 #import MultiNEAT as NEAT
 import mod_het_cp as mod, sys
 from random import randint, choice
-from copy import deepcopy
-
+#from copy import deepcopy
+mod.visualize_trajectory()
+sys.exit()
 class Py_neat_params:
     def __init__(self):
 
@@ -54,35 +55,38 @@ class Py_neat_params:
 
 class Parameters:
     def __init__(self):
-        self.population_size = 100
+        self.population_size = 50
         self.D_reward = 0  # D reward scheme
-        self.grid_row = 10
-        self.grid_col = 10
+        self.grid_row = 12
+        self.grid_col = 12
         self.obs_dist = 1  # Observe distance (Radius of POI that agents have to be in for successful observation)
         self.coupling = 1  # Number of agents required to simultaneously observe a POI
-        self.total_steps = 20 # Total roaming steps without goal before termination
+        self.total_steps = 10
+        # Total roaming steps without goal before termination
         self.num_agents_scout = 1
-        self.num_agents_service_bot = 1
-        self.num_poi = 2
-        self.angle_res = 45
+        self.num_agents_service_bot = 2
+        self.num_poi = 4
+        self.angle_res = 90
         self.agent_random = 0
-        self.poi_random = 1
+        self.poi_random = 0
         self.total_generations = 10000
-        self.wheel_action = 1
+        self.wheel_action = 0
         self.use_neat = 1  # Use NEAT VS. Keras based Evolution module
         self.use_py_neat = 0 #Use Python implementation of NEAT
         self.is_fuel = 0 #Binary deciding whether to have fuel cost as a consideration
-        self.is_time_offset = 1 #COntrols whether there is a time-offset or not
+        self.is_time_offset = 0 #COntrols whether there is a time-offset or not
         self.time_offset = 4 #The time-offset / window for observation to happen following scouting
-        self.is_hard_time_offset = 1 #Controls whether the time offset is hard or conversely soft
+        self.is_hard_time_offset = 0 #Controls whether the time offset is hard or conversely soft
 
         self.reward_scheme = 3 #1: Order not relevant and is_scouted not required
                                #2: Order not relevant and is_scouted required
                                #3: Order relevant and is_scouted required
 
-        self.is_service_cost = 1 #Cost for service bots to service a POI
+        self.is_service_cost = 0 #Cost for service bots to service a POI
 
+        self.is_poi_move = 0 #POI move randomly
 
+        self.domain_setup = 1
 
 
         #TERTIARY
@@ -139,18 +143,18 @@ class Parameters:
                 import MultiNEAT as NEAT
                 self.params = NEAT.Parameters()
                 self.params.PopulationSize = self.population_size
-                self.params.fs_neat = 0
-                self.params.evo_hidden = 1
+                self.params.fs_neat = 1
+                self.params.evo_hidden = 10
                 self.params.MinSpecies = 5
-                self.params.MaxSpecies = 10
+                self.params.MaxSpecies = 15
                 self.params.EliteFraction = 0.05
                 self.params.RecurrentProb = 0.2
                 self.params.RecurrentLoopProb = 0.2
 
                 self.params.MaxWeight = 8
-                self.params.MutateAddNeuronProb = 0#0.01
-                self.params.MutateAddLinkProb = 0#0.05
-                self.params.MutateRemLinkProb = 0#0.01
+                self.params.MutateAddNeuronProb = 0.01
+                self.params.MutateAddLinkProb = 0.05
+                self.params.MutateRemLinkProb = 0.01
                 self.params.MutateRemSimpleNeuronProb = 0.005
                 self.params.MutateNeuronActivationTypeProb = 0.005
 
@@ -161,9 +165,13 @@ class Parameters:
         else: #Use keras
             self.keras_evonet_hnodes = 25  # Keras based Evo-net's hidden nodes
 
+
 parameters = Parameters() #Create the Parameters class
 tracker = mod.statistics() #Initiate tracker
 gridworld = mod.Gridworld (parameters)  # Create gridworld
+
+
+
 if parameters.use_hall_of_fame: hof_util = mod.Hof_util()
 
 # # Get rover data for the simulartor
@@ -194,9 +202,18 @@ if parameters.use_hall_of_fame: hof_util = mod.Hof_util()
 # else:
 #     train_x = 0; valid_x = 0
 
+def test_policies():
+    gridworld.load_test_policies() #Load test policies from best_team folder Assumes perfect sync
+    fake_team = np.zeros(parameters.num_agents_scout + parameters.num_agents_service_bot)  # Fake team for test_phase
+    for i in range(1):
+        reward, global_reward, trajectory_log  = run_simulation(parameters, gridworld, fake_team, is_test=True)
+        np.savetxt('trajectory.csv', trajectory_log, delimiter=',',fmt='%10.5f')
+        print reward, global_reward
+    sys.exit()
+
 num_evals = 5
 def evolve(gridworld, parameters, best_hof_score):
-    best_team = None; best_global = 0
+    best_team = None; best_global = -100; epoch_best_team = None
     #Reset initial random positions for the epoch
     gridworld.new_epoch_reset()
 
@@ -254,8 +271,10 @@ def evolve(gridworld, parameters, best_hof_score):
         #ION AND TRACK REWARD
         rewards, global_reward = run_simulation(parameters, gridworld, teams) #Returns rewards for each member of the team
         if global_reward > best_global:
+            epoch_best_team = np.copy(teams)  # Store the best team from current epoch
             best_global = global_reward; #Store the best global performance
-            if global_reward > best_hof_score: best_team = np.copy(teams) #Store the best team
+            if global_reward > best_hof_score: best_team = np.copy(teams) #Store the best team ever seen (HOF)
+
 
         #ENCODE FITNESS BACK TO AGENT and ALSO consider fuel cost
         for id, agent in enumerate(gridworld.agent_list_scout):
@@ -267,6 +286,10 @@ def evolve(gridworld, parameters, best_hof_score):
             ig_reward = rewards[index]
             #if parameters.is_fuel: ig_reward = rewards[index] + agent.fuel #Fuel cost
             agent.evo_net.fitness_evals[teams[index]].append(ig_reward) #Assign those rewards to the members of the team across the sub-populations
+
+    #Update epoch's best team and save them
+    gridworld.epoch_best_team = epoch_best_team
+    gridworld.save_best_team()
 
     if parameters.use_hall_of_fame: #HAll of Fame
         update_whole_team_hof = True
@@ -304,37 +327,61 @@ def evolve(gridworld, parameters, best_hof_score):
 
     return best_global
 
-def run_simulation(parameters, gridworld, teams): #Run simulation given a team and return fitness for each individuals in that team
+def run_simulation(parameters, gridworld, teams, is_test = False): #Run simulation given a team and return fitness for each individuals in that team
 
-
+    if is_test: trajectory_log = []
     gridworld.reset(teams)  # Reset board
     #mod.dispGrid(gridworld)
     for steps in range(parameters.total_steps):  # One training episode till goal is not reached
+        if is_test: ig_traj_log = []
         for id, agent in enumerate(gridworld.agent_list_scout):  #get all the action choices from the agents
             if steps == 0: agent.perceived_state = gridworld.get_state(agent, is_Scout=True) #Update all agent's perceived state
             if steps == 0 and parameters.split_learner: agent.split_learner_state = gridworld.get_state(agent, is_Scout= True, state_representation=2) #If split learner
-            agent.take_action(teams[id]) #Make the agent take action using the Evo-net with given id from the population
+            if is_test:
+                agent.take_action_test()
+                ig_traj_log.append(agent.position[0])
+                ig_traj_log.append(agent.position[1])
+                print agent.position
+            else:
+                agent.take_action(teams[id]) #Make the agent take action using the Evo-net with given id from the population
 
         for id, agent in enumerate(gridworld.agent_list_service_bot):  #get all the action choices from the agents
             if steps == 0: agent.perceived_state = gridworld.get_state(agent, is_Scout=False) #Update all agent's perceived state
             if steps == 0 and parameters.split_learner: agent.split_learner_state = gridworld.get_state(agent, is_Scout= False, state_representation=2) #If split learner
-            agent.take_action(teams[id+parameters.num_agents_scout]) #Make the agent take action using the Evo-net with given id from the population
+            if is_test:
+                agent.take_action_test()
+                ig_traj_log.append(agent.position[0])
+                ig_traj_log.append(agent.position[1])
+            else:
+                agent.take_action(teams[id+parameters.num_agents_scout]) #Make the agent take action using the Evo-net with given id from the population
 
+        if is_test:
+            for poi in gridworld.poi_list:
+                ig_traj_log.append(poi.position[0])
+                ig_traj_log.append(poi.position[1])
+            trajectory_log.append(np.array(ig_traj_log))
         gridworld.move() #Move gridworld
-        #mod.dispGrid(gridworld)
+
+        mod.dispGrid(gridworld)
         #raw_input('E')
         gridworld.update_poi_observations() #Figure out the POI observations and store all credit information
+        if parameters.is_poi_move: gridworld.poi_move()
 
         for id, agent in enumerate(gridworld.agent_list_scout): agent.referesh(teams[id], gridworld) #Update state and learn if applicable
         for id, agent in enumerate(gridworld.agent_list_service_bot): agent.referesh(teams[id],
                                                                          gridworld)  # Update state and learn if applicable
 
         if gridworld.check_goal_complete(): break #If all POI's observed
-
+        #mod.dispGrid(gridworld)
     rewards, global_reward = gridworld.get_reward(teams)
     #print rewards, global_reward
     #print rewards
     #rewards -= 0.001 * steps #Time penalty
+
+    if is_test:
+        trajectory_log = np.array(trajectory_log)
+        return rewards, global_reward, trajectory_log
+
     return rewards, global_reward
 
 def random_baseline():
@@ -364,6 +411,8 @@ def random_baseline():
     print 'Random Baseline: ', g_reward/total_trials
 
 if __name__ == "__main__":
+
+    test_policies()
     #random_baseline()
     mod.dispGrid(gridworld)
     best_hof_score = 0
