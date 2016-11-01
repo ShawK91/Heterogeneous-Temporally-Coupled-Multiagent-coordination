@@ -1,10 +1,17 @@
-import numpy as np, math, copy, time
+import numpy as np, time
 #import MultiNEAT as NEAT
 import mod_het_cp as mod, sys
 from random import randint, choice
 #from copy import deepcopy
-mod.visualize_trajectory()
-sys.exit()
+
+
+viz = 0
+gen_traj = 0
+
+if viz:
+    mod.vizualize_trajectory()
+    sys.exit()
+
 class Py_neat_params:
     def __init__(self):
 
@@ -55,164 +62,181 @@ class Py_neat_params:
 
 class Parameters:
     def __init__(self):
-        self.population_size = 50
-        self.D_reward = 0  # D reward scheme
-        self.grid_row = 12
-        self.grid_col = 12
-        self.obs_dist = 1  # Observe distance (Radius of POI that agents have to be in for successful observation)
-        self.coupling = 1  # Number of agents required to simultaneously observe a POI
-        self.total_steps = 10
-        # Total roaming steps without goal before termination
-        self.num_agents_scout = 1
-        self.num_agents_service_bot = 2
-        self.num_poi = 4
-        self.angle_res = 90
+        self.population_size = 100
+        self.D_reward = 1  # D reward scheme
+        self.grid_row = 15
+        self.grid_col = 15
+        self.total_steps = 20 # Total roaming steps without goal before termination
+        self.num_agents_scout = 3
+        self.num_agents_service_bot = 6
+        self.num_poi = 9
         self.agent_random = 0
-        self.poi_random = 0
+        self.poi_random = 1
         self.total_generations = 10000
-        self.wheel_action = 0
-        self.use_neat = 1  # Use NEAT VS. Keras based Evolution module
-        self.use_py_neat = 0 #Use Python implementation of NEAT
-        self.is_fuel = 0 #Binary deciding whether to have fuel cost as a consideration
-        self.is_time_offset = 0 #COntrols whether there is a time-offset or not
-        self.time_offset = 4 #The time-offset / window for observation to happen following scouting
-        self.is_hard_time_offset = 0 #Controls whether the time offset is hard or conversely soft
+        self.wheel_action = 1
 
-        self.reward_scheme = 3 #1: Order not relevant and is_scouted not required
-                               #2: Order not relevant and is_scouted required
-                               #3: Order relevant and is_scouted required
+        self.is_time_offset = 1 #Controls whether there is a time-offset or not
 
-        self.is_service_cost = 0 #Cost for service bots to service a POI
+        #If no time offset the activation time is set to total length of episode
+        if self.is_time_offset == 0: #DO NOT CHANGE THE IF LOOP, alter only ELSE part
+            self.time_offset = self.total_steps; self.is_hard_time_offset = 0
+        else: #CHANGE THIS
 
-        self.is_poi_move = 0 #POI move randomly
+            self.time_offset = 2 #The time-offset / window for observation to happen following scouting
+            self.is_hard_time_offset = 1 #Controls whether the time offset is hard or conversely soft
 
-        self.domain_setup = 1
+        self.is_fuel = 0  # Binary deciding whether to have fuel cost as a consideration
+        self.is_service_cost = 1 #Cost for service bots to service a POI
+
+        #POI motion
+        self.is_poi_move = 1  # POI move randomly
+        self.periodic_poi = 1 #Implements a 2 steep POI movement
+        self.poi_motion_probability = 1 #[0.0-1.0] probability
 
 
-        #TERTIARY
-        self.predictor_hnodes = 20  # Prediction module hidden nodes (also the input to the Evo-net)
-        self.augmented_input = 1
-        self.baldwin = 0
-        self.online_learning = 1
-        self.update_sim = 1
-        self.pre_train = 0
+        #Predefined domains for testing
+        self.domain_setup = 0
+        if self.domain_setup != 0:
+            if self.domain_setup == 2:
+                self.num_poi = 4
+                self.num_agents_scout = 2
+                self.num_agents_service_bot = 4
+                self.total_steps = 3
+                self.is_time_offset = 1
+                self.is_hard_time_offset = 1
+                self.time_offset = 2
+                self.poi_random = 0
+                self.agent_random = 0
+                self.grid_col = 14; self.grid_row = 14
+                self.is_poi_move = 0
 
-        self.sim_all = 0  # Simulator learns to predict the enmtrie state including the POI's
-        self.share_sim_subpop = 1  # Share simulator within a sub-population
-        self.sensor_avg = True  # Average distance as state input vs (min distance by default)
-        self.split_learner = 0
-        self.state_representation = 1  # 1 --> Angled brackets, 2--> List of agent/POIs
-        if self.split_learner: self.state_representation = 1 #ENSURE
-        self.use_rnn = 0  # Use recurrent instead of normal network
-        #self.success_replay = False
-        #self.vizualize = False
+            elif self.domain_setup == 3:
+                self.num_poi = 2
+                self.num_agents_scout = 1
+                self.num_agents_service_bot = 2
+                self.total_steps = 3
+                self.is_time_offset = 1
+                self.is_hard_time_offset = 0
+                self.time_offset = 3
+                self.poi_random = 0
+                self.agent_random = 0
+                self.grid_col = 9; self.grid_row = 9
+                self.is_poi_move = 0
 
-        # Determine Evo-input size
-        self.evo_input_size = 0
-        if self.state_representation == 2:
-            if self.baldwin and self.augmented_input:
-                self.evo_input_size = self.predictor_hnodes + self.num_agents * 2 + self.num_poi * 2
-            elif self.baldwin and not self.augmented_input:
-                self.evo_input_size = self.predictor_hnodes
-            else:
-                self.evo_input_size = self.num_agents * 2 + self.num_poi * 2
-        elif self.state_representation == 1:
-            if self.baldwin and self.augmented_input:
-                self.evo_input_size = self.predictor_hnodes + (360 * 4 / self.angle_res)
-            elif self.baldwin and not self.augmented_input:
-                self.evo_input_size = self.predictor_hnodes
-            else:
-                self.evo_input_size = (360 * 6 / self.angle_res)
-        elif self.state_representation == 3:
-            k = 1
-            #TODO Complete this
-        if self.split_learner and not self.baldwin: #Strict Darwin with no Baldwin for split learner
-            self.evo_input_size = self.num_agents * 2 + self.num_poi * 2 + (360 * 4 / self.angle_res)
-        #print self.evo_input_size
 
-        #EV0-NET
-        self.use_hall_of_fame = 0
-        self.hof_weight = 0.99
-        self.leniency = 1  # Fitness calculation based on leniency vs averaging
 
-        if self.use_neat: #Neat
-            if self.use_py_neat: #Python NEAT
-                self.py_neat_config = Py_neat_params()
+        #Tertiary Variables (Closed for cleanliness) Open to modify
+        if True:
+            # GIVEN
+            self.reward_scheme = 3  # 1: Order not relevant and is_scouted not required
+            # 2: Order not relevant and is_scouted required
+            # 3: Order relevant and is_scouted required
 
-            else: #Multi-NEAT parameters
-                import MultiNEAT as NEAT
-                self.params = NEAT.Parameters()
-                self.params.PopulationSize = self.population_size
-                self.params.fs_neat = 1
-                self.params.evo_hidden = 10
-                self.params.MinSpecies = 5
-                self.params.MaxSpecies = 15
-                self.params.EliteFraction = 0.05
-                self.params.RecurrentProb = 0.2
-                self.params.RecurrentLoopProb = 0.2
+            #TERTIARY
+            self.angle_res = 45
+            self.use_neat = 1  # Use NEAT VS. Keras based Evolution module
+            self.obs_dist = 1  # Observe distance (Radius of POI that agents have to be in for successful observation)
+            self.coupling = 1  # Number of agents required to simultaneously observe a POI
+            self.use_py_neat = 0  # Use Python implementation of NEAT
+            self.predictor_hnodes = 20  # Prediction module hidden nodes (also the input to the Evo-net)
+            self.augmented_input = 1
+            self.baldwin = 0
+            self.online_learning = 1
+            self.update_sim = 1
+            self.pre_train = 0
 
-                self.params.MaxWeight = 8
-                self.params.MutateAddNeuronProb = 0.01
-                self.params.MutateAddLinkProb = 0.05
-                self.params.MutateRemLinkProb = 0.01
-                self.params.MutateRemSimpleNeuronProb = 0.005
-                self.params.MutateNeuronActivationTypeProb = 0.005
+            self.sim_all = 0  # Simulator learns to predict the enmtrie state including the POI's
+            self.share_sim_subpop = 1  # Share simulator within a sub-population
+            self.sensor_avg = True  # Average distance as state input vs (min distance by default)
+            self.split_learner = 0
+            self.state_representation = 1  # 1 --> Angled brackets, 2--> List of agent/POIs
+            if self.split_learner: self.state_representation = 1 #ENSURE
+            self.use_rnn = 0  # Use recurrent instead of normal network
+            #self.success_replay = False
+            #self.vizualize = False
 
-                self.params.ActivationFunction_SignedSigmoid_Prob = 0.01
-                self.params.ActivationFunction_UnsignedSigmoid_Prob = 0.5
-                self.params.ActivationFunction_Tanh_Prob = 0.1
-                self.params.ActivationFunction_SignedStep_Prob = 0.1
-        else: #Use keras
-            self.keras_evonet_hnodes = 25  # Keras based Evo-net's hidden nodes
+            # Determine Evo-input size
+            self.evo_input_size = 0
+            if self.state_representation == 2:
+                if self.baldwin and self.augmented_input:
+                    self.evo_input_size = self.predictor_hnodes + self.num_agents * 2 + self.num_poi * 2
+                elif self.baldwin and not self.augmented_input:
+                    self.evo_input_size = self.predictor_hnodes
+                else:
+                    self.evo_input_size = self.num_agents * 2 + self.num_poi * 2
+            elif self.state_representation == 1:
+                if self.baldwin and self.augmented_input:
+                    self.evo_input_size = self.predictor_hnodes + (360 * 4 / self.angle_res)
+                elif self.baldwin and not self.augmented_input:
+                    self.evo_input_size = self.predictor_hnodes
+                else:
+                    self.evo_input_size = (360 * 6 / self.angle_res)
+            elif self.state_representation == 3:
+                k = 1
+                #TODO Complete this
+            if self.split_learner and not self.baldwin: #Strict Darwin with no Baldwin for split learner
+                self.evo_input_size = self.num_agents * 2 + self.num_poi * 2 + (360 * 4 / self.angle_res)
+            #print self.evo_input_size
+
+            #EV0-NET
+            self.use_hall_of_fame = 0
+            self.hof_weight = 0.99
+            self.leniency = 1  # Fitness calculation based on leniency vs averaging
+
+            if self.use_neat: #Neat
+                if self.use_py_neat: #Python NEAT
+                    self.py_neat_config = Py_neat_params()
+
+                else: #Multi-NEAT parameters
+                    import MultiNEAT as NEAT
+                    self.params = NEAT.Parameters()
+                    self.params.PopulationSize = self.population_size
+                    self.params.fs_neat = 1
+                    self.params.evo_hidden = 10
+                    self.params.MinSpecies = 5
+                    self.params.MaxSpecies = 15
+                    self.params.EliteFraction = 0.05
+                    self.params.RecurrentProb = 0.2
+                    self.params.RecurrentLoopProb = 0.2
+
+                    self.params.MaxWeight = 8
+                    self.params.MutateAddNeuronProb = 0.01
+                    self.params.MutateAddLinkProb = 0.05
+                    self.params.MutateRemLinkProb = 0.01
+                    self.params.MutateRemSimpleNeuronProb = 0.005
+                    self.params.MutateNeuronActivationTypeProb = 0.005
+
+                    self.params.ActivationFunction_SignedSigmoid_Prob = 0.01
+                    self.params.ActivationFunction_UnsignedSigmoid_Prob = 0.5
+                    self.params.ActivationFunction_Tanh_Prob = 0.1
+                    self.params.ActivationFunction_SignedStep_Prob = 0.1
+            else: #Use keras
+                self.keras_evonet_hnodes = 25  # Keras based Evo-net's hidden nodes
 
 
 parameters = Parameters() #Create the Parameters class
-tracker = mod.statistics() #Initiate tracker
+tracker = mod.statistics(parameters) #Initiate tracker
 gridworld = mod.Gridworld (parameters)  # Create gridworld
 
-
-
 if parameters.use_hall_of_fame: hof_util = mod.Hof_util()
-
-# # Get rover data for the simulartor
-# def get_sim_ae_data(num_rounds):  # Get simulation data
-#     nn_state, steps, tot_reward = reset_board()  # Reset board
-#     x = []
-#     for ii in range(num_rounds):
-#         for steps in range(50):  # One training episode till goal is not reached
-#
-#             for agent_id in range(num_agents):  # 1 turn per agent
-#                 action = randint(0, 5)  # Get action from the Evo-net
-#                 gridworld.move_and_get_reward(agent_id, action)  # Move gridworld
-#                 x.append(nn_state[agent_id][:])
-#
-#             # Get new nnstates after all an episode of moves have completed
-#             for agent_id in range(num_agents):
-#                 nn_state[agent_id] = gridworld.get_first_state(agent_id, use_rnn, sensor_avg)
-#             if gridworld.check_goal_complete():
-#                 break
-#     x = np.array(x)
-#     x = np.reshape(x, (x.shape[0], x.shape[2]))
-#     return x
-#
-# num_rounds = 10000
-# if pre_train:
-#     train_x = get_sim_ae_data(num_rounds)
-#     valid_x = get_sim_ae_data(num_rounds/10)
-# else:
-#     train_x = 0; valid_x = 0
 
 def test_policies():
     gridworld.load_test_policies() #Load test policies from best_team folder Assumes perfect sync
     fake_team = np.zeros(parameters.num_agents_scout + parameters.num_agents_service_bot)  # Fake team for test_phase
-    for i in range(1):
+    best_reward = -10000
+    for i in range(parameters.population_size):
         reward, global_reward, trajectory_log  = run_simulation(parameters, gridworld, fake_team, is_test=True)
-        np.savetxt('trajectory.csv', trajectory_log, delimiter=',',fmt='%10.5f')
-        print reward, global_reward
+        if global_reward > best_reward:
+            comment = [parameters.num_agents_scout, parameters.num_agents_service_bot, parameters.num_poi] + [0] * (len(trajectory_log[0])-3)
+            trajectory_log = [comment] + trajectory_log
+            trajectory_log = np.array(trajectory_log)
+            np.savetxt('trajectory.csv', trajectory_log, delimiter=',',fmt='%10.5f')
+            print reward, global_reward
+            best_reward = global_reward
     sys.exit()
 
 num_evals = 5
-def evolve(gridworld, parameters, best_hof_score):
+def evolve(gridworld, parameters, generation, best_hof_score):
     best_team = None; best_global = -100; epoch_best_team = None
     #Reset initial random positions for the epoch
     gridworld.new_epoch_reset()
@@ -289,7 +313,12 @@ def evolve(gridworld, parameters, best_hof_score):
 
     #Update epoch's best team and save them
     gridworld.epoch_best_team = epoch_best_team
-    gridworld.save_best_team()
+    if generation % 25 == 0:
+        is_save = True
+        try:
+            is_save = (best_global > (tracker.tr_avg_fit[-1][1] - 0.1))
+        except: 1+1
+        if is_save: gridworld.save_best_team(generation)
 
     if parameters.use_hall_of_fame: #HAll of Fame
         update_whole_team_hof = True
@@ -341,7 +370,7 @@ def run_simulation(parameters, gridworld, teams, is_test = False): #Run simulati
                 agent.take_action_test()
                 ig_traj_log.append(agent.position[0])
                 ig_traj_log.append(agent.position[1])
-                print agent.position
+                #print agent.position
             else:
                 agent.take_action(teams[id]) #Make the agent take action using the Evo-net with given id from the population
 
@@ -373,13 +402,35 @@ def run_simulation(parameters, gridworld, teams, is_test = False): #Run simulati
 
         if gridworld.check_goal_complete(): break #If all POI's observed
         #mod.dispGrid(gridworld)
+
+    #Log final position
+    if is_test:
+        ig_traj_log = []
+        for agent in gridworld.agent_list_scout:
+            ig_traj_log.append(agent.position[0])
+            ig_traj_log.append(agent.position[1])
+
+        for agent in gridworld.agent_list_service_bot:
+            ig_traj_log.append(agent.position[0])
+            ig_traj_log.append(agent.position[1])
+
+        for poi in gridworld.poi_list:
+            ig_traj_log.append(poi.position[0])
+            ig_traj_log.append(poi.position[1])
+        trajectory_log.append(np.array(ig_traj_log))
+
+
+
+
+
+
     rewards, global_reward = gridworld.get_reward(teams)
     #print rewards, global_reward
     #print rewards
     #rewards -= 0.001 * steps #Time penalty
 
     if is_test:
-        trajectory_log = np.array(trajectory_log)
+        #trajectory_log = np.array(trajectory_log)
         return rewards, global_reward, trajectory_log
 
     return rewards, global_reward
@@ -412,14 +463,15 @@ def random_baseline():
 
 if __name__ == "__main__":
 
-    test_policies()
+    if gen_traj: test_policies()
     #random_baseline()
     mod.dispGrid(gridworld)
+
     best_hof_score = 0
 
     for gen in range (parameters.total_generations): #Main Loop
         curtime = time.time()
-        best_global = evolve(gridworld, parameters, best_hof_score) #CCEA
+        best_global = evolve(gridworld, parameters, gen, best_hof_score) #CCEA
         if best_global > best_hof_score: best_hof_score = best_global
         tracker.add_fitness(best_global, gen) #Add best global performance to tracker
 

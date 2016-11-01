@@ -1,17 +1,16 @@
-
 from random import randint
-from keras.models import Sequential
-from keras.layers import Dense, Activation
-from keras.layers import LSTM, GRU, SimpleRNN
-from keras.layers.advanced_activations import SReLU
-from keras.regularizers import l2, activity_l2
-from keras.optimizers import SGD
+#from keras.models import Sequential
+#from keras.layers import Dense, Activation
+#from keras.layers import LSTM, GRU, SimpleRNN
+#from keras.layers.advanced_activations import SReLU
+#from keras.regularizers import l2, activity_l2
+#from keras.optimizers import SGD
 import math
 import MultiNEAT as NEAT
 import numpy as np, time
 import random
 import pickle
-import neat as py_neat
+#import neat as py_neat
 from neat import nn
 import sys,os
 
@@ -470,9 +469,10 @@ class Evo_net():
 class Agent_scout:
     def __init__(self, grid, parameters, team_role_index):
         self.parameters = parameters
+        self.team_role_index = team_role_index
         self.spawn_position = self.init_agent(grid)
         self.position = self.spawn_position[:]
-        self.team_role_index = team_role_index
+
 
         self.action = 0
         self.evo_net = Evo_net(parameters)
@@ -487,6 +487,27 @@ class Agent_scout:
             x = self.spawn_position[0]; y = self.spawn_position[1]
             grid.state[x][y] = 1
             return [x,y]
+
+        if self.parameters.domain_setup != 0:  # Known domain testing
+            if self.parameters.domain_setup == 1:
+                x = 4; y = 4
+
+
+            elif self.parameters.domain_setup == 2:
+                if self.team_role_index == 0:
+                    x = 14; y = 7
+                elif self.team_role_index == 1:
+                    x = 14; y = 8
+
+            elif self.parameters.domain_setup == 3:
+                if self.team_role_index == 0:
+                    x = 5; y = 5
+
+
+            grid.state[x][y] = 1
+            return [x, y]
+
+
 
 
         start = grid.observe;  end = grid.state.shape[0] - grid.observe - 1
@@ -616,9 +637,10 @@ class Agent_scout:
 class Agent_service_bot:
     def __init__(self, grid, parameters, team_role_index):
         self.parameters = parameters
+        self.team_role_index = team_role_index
         self.spawn_position = self.init_agent(grid)
         self.position = self.spawn_position[:]
-        self.team_role_index = team_role_index
+
 
         self.action = 0
         self.evo_net = Evo_net(parameters)
@@ -640,8 +662,33 @@ class Agent_service_bot:
         rad = int(grid.dim_row / math.sqrt(3) / 3)
         center = int((start + end) / 2)
 
-        if self.parameters.domain_setup == 1:
-            x = 12; y = 3
+
+        if self.parameters.domain_setup != 0:  # Known domain testing
+            if self.parameters.domain_setup == 1:
+                x = 2;
+                y = 3 + 2 * self.team_role_index
+
+            elif self.parameters.domain_setup == 2:
+                if self.team_role_index == 0:
+                    x = 12; y = 1
+                elif self.team_role_index == 1:
+                    x = 14; y = 1
+                elif self.team_role_index == 2:
+                    x = 12; y = 14
+                elif self.team_role_index == 3:
+                    x = 14; y = 14
+
+            elif self.parameters.domain_setup == 3:
+                if self.team_role_index == 0:
+                    x = 1; y = 7
+                elif self.team_role_index == 1:
+                    x = 9; y = 7
+
+
+            grid.state[x][y] = 4
+            return [x, y]
+
+
 
 
 
@@ -664,7 +711,7 @@ class Agent_service_bot:
 
                 if grid.state[x][y] != 1 and grid.state[x][y] != 4: #position not already occupied
                     break
-                trial+=4
+                trial+=1
 
         grid.state[x][y] = 4  # Agent Code
         return [x, y]
@@ -772,15 +819,42 @@ class Agent_service_bot:
         return state
 
 class POI:
-    def __init__(self, grid):
+    def __init__(self, grid, parameters, team_role_index):
+        self.parameters = parameters
+        self.team_role_index = team_role_index
         self.spawn_position = self.init_poi(grid)
         self.position = self.spawn_position[:]
         self.is_observed = False #Check if goal is complete
-        self.observation_history = [] #Track the identity of agents within the coupling requirements at all applicable time steps
         self.is_scouted = False #Found by scout
-        self.scout_history = [] #Track which scout scouted it
-        self.activation_time = -10
         self.spawn_position = self.position[:]
+        self.previous_actions = [0,0]
+
+
+        #self.observation_history = []  # Track the identity of agents within the coupling requirements at all applicable time steps
+        #self.scout_history = [] #Track which scout scouted it
+
+        self.activation_log = []
+        self.success_completion_log = []
+        #self.activation_time = -10
+
+    def take_action(self):
+        if self.parameters.periodic_poi:
+            action_choice = self.previous_actions[0]
+            action_choice = (action_choice % 4) + 1
+            self.previous_actions[0] = self.previous_actions[1]
+            self.previous_actions[1] = action_choice
+
+            # self.previous_actions[0] = self.previous_actions[1]
+            # self.previous_actions[1] = self.previous_actions[2]
+            # self.previous_actions[2] = action_choice
+            #print self.previous_actions, action_choice
+            return action_choice
+
+
+        else:
+            rand_choice = randint(1,4)
+            return rand_choice
+
 
     def init_poi(self, grid, is_new_epoch=True):
         if not is_new_epoch: #If not a new epoch and intra epoch (random already initialized)
@@ -791,6 +865,49 @@ class POI:
         start = grid.observe; end = grid.state.shape[0] - grid.observe - 1
         rad = int(grid.dim_row / math.sqrt(3) / 2)
         center = int((start + end) / 2)
+
+        if self.parameters.domain_setup != 0: #Known domain testing
+            if self.parameters.domain_setup == 1:
+                x = 4; y = 1 + 6 * self.team_role_index
+
+
+            elif self.parameters.domain_setup == 2:
+                if self.team_role_index == 0:
+                    x = 14; y = 4
+                elif self.team_role_index == 1:
+                    x = 14; y = 11
+                elif self.team_role_index == 2:
+                    x = 12; y = 4
+                elif self.team_role_index == 3:
+                    x = 12; y = 11
+
+            elif self.parameters.domain_setup == 3:
+                if self.team_role_index == 0:
+                    if random.random() < 0.5:
+                        x = 2; y = 3
+                    else:
+                        x = 2; y = 7
+
+                if self.team_role_index == 1:
+                    if grid.poi_list[0].spawn_position[1] == 3:
+                        x = 8; y = 7
+                    else:
+                        x = 8; y = 3
+
+
+
+
+
+
+
+
+
+
+
+
+            grid.state[x][y] = 2
+            return [x, y]
+
         if grid.poi_rand:
             while True:
                 rand = random.random()
@@ -841,9 +958,12 @@ class POI:
         self.spawn_position = self.init_poi(grid, is_new_epoch)
         self.position = self.spawn_position[:]
         self.is_observed = False
-        self.observation_history = []
         self.is_scouted = False #Found by scout
-        self.scout_history = [] #Track which scout scouted it
+        self.success_completion_log = []
+        self.activation_log = []
+        #self.observation_history = []
+
+        #self.scout_history = [] #Track which scout scouted it
 
 class Gridworld:
     def __init__(self, parameters):
@@ -860,7 +980,7 @@ class Gridworld:
 
         self.poi_list = [] #List of POI objects
         for i in range(self.num_poi):
-            self.poi_list.append(POI(self))
+            self.poi_list.append(POI(self, parameters, i))
 
         self.agent_list_scout = []
         for i in range(self.num_agents_scout): self.agent_list_scout.append(Agent_scout(self, parameters, i))
@@ -1076,7 +1196,7 @@ class Gridworld:
         dist = math.sqrt(dist)
         return angle, dist
 
-    def update_poi_observations(self):
+    def old_update_poi_observations(self):
         # Check for credit assignment
         for poi in self.poi_list:  # POI COUPLED
             if self.parameters.is_time_offset: poi.activation_time -= 1 #Decrease POI's activation time
@@ -1114,10 +1234,10 @@ class Gridworld:
                     poi.observation_history.append(soft_stat)  # Store the identity of agents aiding in meeting that tight coupling requirement
 
     #Test
-    def test_update_poi_observations(self):
+    def update_poi_observations(self):
         # Check for credit assignment
         for poi in self.poi_list:  # POI COUPLED
-            if self.parameters.is_time_offset: poi.activation_time -= 1 #Decrease POI's activation time
+
 
             #Scouts
             soft_stat = []
@@ -1125,9 +1245,9 @@ class Gridworld:
                 if abs(poi.position[0] - agent.position[0]) <= self.obs_dist*2 and abs(poi.position[1] - agent.position[1]) <= self.obs_dist*2:  # and self.goal_complete[poi_id] == False:
                     soft_stat.append(agent_id)
             if len(soft_stat) >= self.coupling:  # If coupling requirement is met
-                if self.parameters.is_time_offset: poi.activation_time = self.parameters.time_offset #Reset activation time
+                poi.activation_log.append([agent_id, self.parameters.time_offset])
                 poi.is_scouted = True
-                poi.scout_history.append(soft_stat)  # Store the identity of agents aiding in meeting that tight coupling requirement
+                #poi.scout_history.append(soft_stat)  # Store the identity of agents aiding in meeting that tight coupling requirement
 
             #Service_bots
             soft_stat = []
@@ -1137,20 +1257,28 @@ class Gridworld:
                     soft_stat.append(agent_id)
                     agent.service_cost -= 0.1 / (1.0 * self.parameters.total_steps)
             if len(soft_stat) >= self.coupling:  # If coupling requirement is met
-                ig_scheme = True #implements the different reward schemes #1: Order not relevant and is_scouted not required
+                #implements the different reward schemes #1: Order not relevant and is_scouted not required
                                                                           #2: Order not relevant and is_scouted required
                                                                           #3: Order relevant and is_scouted required
-                if self.parameters.reward_scheme == 3:
-                    if not poi.is_scouted: ig_scheme = False
-                if self.parameters.is_time_offset:
-                    if self.parameters.is_hard_time_offset:
-                        if poi.activation_time != 0: ig_scheme = False
-                    else:
-                        if poi.activation_time <= 0: ig_scheme = False #Implement time coupling scheme
+                if self.parameters.reward_scheme == 3 and poi.is_scouted:
+                        for entry_id, entry in enumerate(poi.activation_log):
+                            if self.parameters.is_hard_time_offset:
+                                if entry[1] == 0:
+                                    for ag_id in soft_stat: poi.success_completion_log.append([entry[0], ag_id]) #Put scout responsible and service agent  in the success log
+                                    poi.is_observed = True
+                            else:
+                                if entry[1] >= 0:
+                                    for ag_id in soft_stat: poi.success_completion_log.append([entry[0], ag_id]) #Put scout responsible and service agent  in the success log
+                                    poi.is_observed = True
 
-                if ig_scheme:
-                    poi.is_observed = True
-                    poi.observation_history.append(soft_stat)  # Store the identity of agents aiding in meeting that tight coupling requirement
+            #Update poi_activation logs
+            for entry_id, entry in enumerate(poi.activation_log):
+                entry[1] -= 1
+                if entry[1] < 0: poi.activation_log.pop(entry_id)
+
+
+
+
 
     def check_goal_complete(self):
         is_complete = True
@@ -1158,7 +1286,7 @@ class Gridworld:
             is_complete *= poi.is_observed
         return is_complete
 
-    def get_reward(self, teams):
+    def old_get_reward(self, teams):
         global_reward = 0 #Global reward obtained
         for poi in self.poi_list:
             if self.parameters.reward_scheme == 2:
@@ -1225,10 +1353,71 @@ class Gridworld:
 
         return rewards, global_reward
 
+    def get_reward(self, teams):
+        global_reward = 0 #Global reward obtained
+        for poi in self.poi_list:
+            if self.parameters.reward_scheme == 2:
+                global_reward += 1.0 * poi.is_observed * poi.is_scouted
+            else:
+                global_reward += 1.0 * poi.is_observed
+        global_reward /= self.parameters.num_poi #Scale between 0 and 1
+
+        rewards = np.zeros(self.parameters.num_agents_scout + self.parameters.num_agents_service_bot) #Rewards decomposed to the team
+        if self.parameters.is_fuel:
+            for i in range((self.parameters.num_agents_scout + self.parameters.num_agents_service_bot)):
+                if i < self.parameters.num_agents_scout:
+                    rewards[i] += self.agent_list_scout[i].fuel
+                    global_reward += self.agent_list_scout[i].fuel/self.parameters.num_agents_scout
+                else:
+                    index = i - self.parameters.num_agents_scout
+                    rewards[i] += self.agent_list_service_bot[index].fuel
+                    global_reward += self.agent_list_service_bot[index].fuel/self.parameters.num_agents_service_bot
+
+        if self.parameters.is_service_cost:
+            for i in range(self.parameters.num_agents_service_bot):
+                rewards[i] += self.agent_list_service_bot[i].service_cost
+                global_reward += self.agent_list_service_bot[i].service_cost/self.parameters.num_agents_service_bot
+
+        if self.parameters.D_reward: #Difference reward scheme
+            for poi in self.poi_list:
+                if poi.is_observed: #If POI observed
+                    no_reward = False
+
+                    # Check if over-observed (service_bot)
+                    all_servicers = [a[1] for a in poi.success_completion_log]
+                    unique_servicers = set(all_servicers)
+                    if len(unique_servicers) > self.parameters.coupling:  # Only if it's observed by exactly the numbers needed
+                        no_reward = True;
+
+
+                    # Service_bots rewards
+                    if not no_reward:
+                        for agent_id in unique_servicers:
+                            rewards[self.num_agents_scout+ agent_id] += 1.0 / self.parameters.num_poi  # Reward the first group of agents to get there
+
+
+                    # Check if over-observed (Scout)
+                    no_reward = False
+                    all_scouts = [a[0] for a in poi.success_completion_log]
+                    unique_scouts = set(all_scouts)
+                    if len(unique_scouts) > self.parameters.coupling:  # Only if it's observed by exactly the numbers needed
+                        no_reward = True;
+
+
+                    # Scouts rewards
+                    if not no_reward:
+                        for agent_id in unique_scouts:
+                            rewards[agent_id] += 1.0 / self.parameters.num_poi  # Reward the first group of agents to get there
+
+        else:
+            rewards += global_reward  # Global reward scheme
+
+        return rewards, global_reward
+
     def poi_move(self):
         for poi in self.poi_list:
-            if random.random() < 1:
-                action = randint(1,4)
+            if random.random() < self.parameters.poi_motion_probability:
+                action = poi.take_action()
                 next_pos = np.copy(poi.position)
                 if action == 1:
                     next_pos[1] += 1  # Right
@@ -1250,7 +1439,7 @@ class Gridworld:
                 poi.position[0] = next_pos[0];
                 poi.position[1] = next_pos[1]  # Update new positions for the agent object
 
-    def save_best_team(self):
+    def save_best_team(self, generation):
         if not os.path.exists('Best_team'):
             os.makedirs('Best_team')
         for i, member_id in enumerate(self.epoch_best_team):
@@ -1259,6 +1448,8 @@ class Gridworld:
             else:
                 index = i - self.num_agents_scout
                 self.agent_list_service_bot[index].evo_net.net_list[member_id].Save('Best_team/' + 'Service_bot_' + str(index))
+        saved_gen = np.zeros(1) + generation
+        np.savetxt('Best_team/save_gen', saved_gen)
 
     def load_test_policies(self):
         for i, agent in enumerate(self.agent_list_scout):
@@ -1273,9 +1464,15 @@ class Gridworld:
                 sys.exit()
 
 class statistics(): #Tracker
-    def __init__(self):
+    def __init__(self, parameters):
         self.fitnesses = []; self.avg_fitness = 0; self.tr_avg_fit = []
         self.avg_mpc = 0; self.tr_avg_mpc = []; self.mpc_std = []; self.tr_mpc_std = []
+        if parameters.D_reward:
+            self.file_save = 'Difference_Eval.csv'
+        else:
+            self.file_save = 'Global_Eval.csv'
+
+
 
 
     def add_fitness(self, fitness, generation):
@@ -1295,7 +1492,7 @@ class statistics(): #Tracker
 
     def save_csv(self, generation):
         self.tr_avg_fit.append(np.array([generation, self.avg_fitness]))
-        np.savetxt('avg_fitness.csv', np.array(self.tr_avg_fit), fmt='%.3f', delimiter=',')
+        np.savetxt(self.file_save, np.array(self.tr_avg_fit), fmt='%.3f', delimiter=',')
 
 class Population(): #Keras population
     def __init__(self, input_size, hidden_nodes, output, population_size, elite_fraction = 0.2):
@@ -1350,7 +1547,6 @@ class Population(): #Keras population
                 # if (randint(1, 100) == 5):  # SUPER MUTATE
                 #     w[i][j][k] += np.random.normal(-1 * much_strength, 1 * much_strength)
         model_out.set_weights(w)  # Save weights
-
 
 def init_nn(input_size, hidden_nodes, middle_layer = False, weights = 0):
     model = Sequential()
@@ -1409,7 +1605,7 @@ def dev_EvaluateGenomeList_Parallel(genome_list, evaluator, cores=4, display=Tru
 
     return fitnesses
 
-def visualize_trajectory(filename = 'trajectory.csv'):
+def old_visualize_trajectory(filename = 'trajectory.csv'):
     import Tkinter as tk
     #from math import *
 
@@ -1473,8 +1669,8 @@ def visualize_trajectory(filename = 'trajectory.csv'):
             self.path_arr = []
             self.spot_arr = []
             self.time_index = 0
-            self.transform = [[1, 0, 0],
-                              [0, -1, 200],
+            self.transform = [[0, 20, 0],
+                              [20, 0, 0],
                               [0, 0, 1]]  # stored in rows
             self.root = None
             self.canvas = None
@@ -1488,7 +1684,6 @@ def visualize_trajectory(filename = 'trajectory.csv'):
             self.spot_arr.append(spot)
 
         def run(self, width=200, height=200, time=0):
-            self.transform[1][2] = height
 
             self.root = tk.Tk()
             self.root.bind("<Return>", self.increment_time)
@@ -1523,7 +1718,7 @@ def visualize_trajectory(filename = 'trajectory.csv'):
                 self.canvas.create_polygon(arrow_tip, fill=path.color)
 
         def draw_spot(self, spot):
-            circle = get_circle_points(radius=3)
+            circle = get_circle_points(radius=0.5)
             circle = translate_points(circle, spot)
             circle = transform_points(circle, self.transform)
             self.canvas.create_oval(circle, fill="black")
@@ -1557,13 +1752,15 @@ def visualize_trajectory(filename = 'trajectory.csv'):
         for i in range(len(trajectory[0])/2): #For each agent (two rows)
             element_path = []
             for time in range(len(trajectory)):
-                element_path.append([trajectory[time][2*i], trajectory[time][i+1]])
+                element_path.append([trajectory[time][2*i], trajectory[time][2*i+1]])
             path.append(element_path)
         return path
 
     v = Visualizer()
     all_paths = csv_trajectory_parser(filename)
+    print len(all_paths)
     for path in all_paths:
+        print path
         v.create_path(path)
 
 
@@ -1571,6 +1768,195 @@ def visualize_trajectory(filename = 'trajectory.csv'):
     #v.create_path([[10., 10.], [10., 30.], [40., 40.]], 'red')
 
     v.create_spot([1.0, 1.0])
+    v.run()
+
+def vizualize_trajectory(filename = 'trajectory.csv'):
+    import Tkinter as tk
+    # from visualizer_math import *
+    import csv
+
+    class Path:
+
+        def __init__(
+                self, position_arr=[],
+                color="black",
+                style="solid"  # or "dashed" #or "circle"
+        ):
+            self.position_arr = position_arr
+            self.color = color
+            self.style = style
+
+        def get_path_slice(self, start=0, end=1):  # inclusive
+            return self.position_arr[start:end + 1]
+
+        def get_path_position(self, time):
+            return self.position_arr[time]
+
+    class Visualizer:
+
+        def __init__(self):
+            self.path_arr = []
+            self.time_index = 0
+
+            self.root = None
+            self.canvas = None
+            self.max_time_index = 0
+
+            # options (all applied after drawing transform)
+            self.circle_radius = 10
+            self.line_width = 2
+            self.line_dash = (5, 5)
+            self.arrow_shape = (8, 10, 3)
+            self.transform = [[0, 20, 0],
+                              [20, 0, 0],
+                              [0, 0, 1]]  # stored in rows
+            self.max_x = 200  # auto adjust as paths are entered
+            self.max_y = 200  # auto adjust as paths are entered
+            self.make_grid = True
+            self.grid_x_spacing = 20
+            self.grid_y_spacing = 20
+            self.grid_color = "white"
+            self.grid_dash = ()  # use () for no dash
+
+        def transform_points(self, point_arr, transform):
+            transformed_point_arr = []
+
+            for point in point_arr:
+                transformed_point_arr.append([
+                    point[0] * transform[0][0] + point[1] * transform[0][1] + transform[0][2],
+                    point[0] * transform[1][0] + point[1] * transform[1][1] + transform[1][2],
+                ])
+            return transformed_point_arr
+
+        def create_path(self, position_arr, color="black", style="solid"):
+            position_arr = self.transform_points(position_arr, self.transform)
+            for point in position_arr:
+                self.max_x = max(point[0], self.max_x)
+                self.max_y = max(point[1], self.max_y)
+            self.path_arr.append(Path(position_arr, color, style))
+            self.max_time_index = len(position_arr) - 1
+
+        def run(self):
+            self.root = tk.Tk()
+            self.root.bind("<Return>", self.increment_time)
+            self.root.bind("<BackSpace>", self.decrement_time)
+
+            self.canvas = tk.Canvas(self.root, width=self.max_x, height=self.max_y)
+            self.canvas.pack()
+            self.update_canvas()
+
+            self.root.mainloop()
+
+        def draw_path(self, path, start=0, end=1):  # inclusive
+            if path.style == "circle":
+                path_position = path.get_path_position(end)
+                self.canvas.create_oval(
+                    path_position[0] - self.circle_radius,
+                    path_position[1] - self.circle_radius,
+                    path_position[0] + self.circle_radius,
+                    path_position[1] + self.circle_radius,
+                    fill=path.color,
+                    outline=path.color
+                )
+            elif end != 0:
+                path_slice = path.get_path_slice(start, end)
+
+                if path.style == "solid":
+                    self.canvas.create_line(
+                        path_slice,
+                        fill=path.color,
+                        width=self.line_width,
+                        arrowshape=self.arrow_shape,
+                        arrow=tk.LAST
+                    )
+                elif path.style == "dashed":
+                    self.canvas.create_line(
+                        path_slice,
+                        fill=path.color,
+                        dash=self.line_dash,
+                        width=self.line_width,
+                        arrowshape=self.arrow_shape,
+                        arrow=tk.LAST
+                    )
+
+        def update_canvas(self):
+            self.canvas.delete(tk.ALL)
+
+            if self.make_grid:
+                self.draw_grid()
+
+            for path in self.path_arr:
+                self.draw_path(path, start=0, end=self.time_index)
+
+            self.root.update_idletasks()
+
+        def draw_grid(self):
+            num_horizontal = int(self.max_y / self.grid_y_spacing)
+            num_vertical = int(self.max_x / self.grid_x_spacing)
+
+            for horizontal_index in range(num_horizontal):
+                self.canvas.create_line(
+                    0,
+                    horizontal_index * self.grid_y_spacing,
+                    self.max_x,
+                    horizontal_index * self.grid_y_spacing,
+                    fill=self.grid_color,
+                    dash=self.grid_dash
+                )
+
+            for vertical_index in range(num_vertical):
+                self.canvas.create_line(
+                    vertical_index * self.grid_x_spacing,
+                    0,
+                    vertical_index * self.grid_x_spacing,
+                    self.max_y,
+                    fill=self.grid_color,
+                    dash=self.grid_dash
+                )
+
+        def increment_time(self, event):
+            if self.time_index < self.max_time_index:
+                self.time_index += 1
+                self.update_canvas()
+
+        def decrement_time(self, event):
+            if self.time_index > 0:
+                self.time_index -= 1
+                self.update_canvas()
+
+    v = Visualizer()
+
+    #import pandas as pd
+    datafile = filename
+    data = list(csv.reader(open(datafile)))
+
+    macros = data[0] #Comments about number of scouts, service bots and POIs
+    macros = [float(a) for a in macros]
+    print 'Scouts: ', macros[0]
+    print 'Service-bots: ', macros[1]
+    print 'POIs: ', macros[2]
+    data.pop(0)
+
+    data = np.array(data)
+    for agent_index in range(len(data[0]) / 2):
+        position_arr = []
+        for time in range(len(data)):
+            position_arr.append([
+                float(data[time][agent_index * 2]),
+                float(data[time][agent_index * 2 + 1])
+            ])
+        if agent_index < int(macros[0]): #Scouts
+            v.create_path(position_arr, 'blue', style='dashed')
+            v.create_path(position_arr, 'blue', 'circle')
+        elif agent_index < int(macros[1])+int(macros[0]): #Service-bots
+            v.create_path(position_arr, 'green', 'solid')
+            v.create_path(position_arr, 'green', 'circle')
+        else:
+            v.create_path(position_arr, 'red', 'circle')
+
+    # v.create_path([[10.,10.],[30.,30.],[21.,45.]],'blue',style ='dashed')
+    # v.create_path([[10.,10.],[10.,30.],[40.,40.]],'red', 'solid')
+    # v.create_path([[10.,10.],[10.,30.],[40.,40.]],'red','circle')
     v.run()
 
 def dispGrid(gridworld, state = None, full=True, agent_id = None):
@@ -1703,9 +2089,6 @@ def roulette_wheel(scores):
 
 
 
-
-
-
 #BACKUPS
 def bck_move_and_get_reward(self, agent_id, action):
     next_pos = np.copy(self.agent_pos[agent_id])
@@ -1761,7 +2144,6 @@ def bck_move_and_get_reward(self, agent_id, action):
 
     return reward
 
-
 def test_nets():
     from fann2 import libfann
     from keras.models import Sequential
@@ -1794,7 +2176,6 @@ def test_nets():
         model.predict(test_x)
     elapsed = time.time() - curtime
     print elapsed
-
 
 def bck_angled_state(self, agent_id, sensor_avg):
     state = np.zeros(((360 / self.angle_res), 4))
@@ -1850,7 +2231,6 @@ def bck_angled_state(self, agent_id, sensor_avg):
 
     state = np.reshape(state, (1, 360 / self.angle_res * 4))  # Flatten array
     return state
-
 
 def novelty(weak_matrix, archive, k = 10):
     import bottleneck
@@ -1963,7 +2343,6 @@ def ff_weakness(setpoints, initial_state, simulator, model, novelty = False, tes
         return np.sum(weakness)/(len(setpoints)-1)
     else:
         return np.sum(np.square(weakness))
-
 
 def get_first_state(self, agent_id, use_rnn, sensor_avg,
                     state_representation):  # Get first state, action input to the q_net
