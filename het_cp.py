@@ -15,7 +15,6 @@ class Parameters:
     def __init__(self):
 
         self.aamas_domain = 1
-
         if self.aamas_domain == 1:
             #Plastic vars
             self.wheel_action = 1
@@ -24,9 +23,7 @@ class Parameters:
             self.is_fuel = 0
 
             # POI motion
-            self.is_poi_move = 1  # POI move randomly
-            self.periodic_poi = 1  # Implements a 2 step POI movement
-
+            self.is_poi_move = 1  # POI move periodically
 
 
             #Constant Vars
@@ -44,6 +41,7 @@ class Parameters:
                 self.poi_random = 1
                 self.is_time_offset = 1
                 self.domain_setup = 0
+                self.periodic_poi = 1  # Implements a 2 step POI movement
 
                 # If no time offset the activation time is set to total length of episode
                 if self.is_time_offset == 0:  # DO NOT CHANGE THE IF LOOP, alter only ELSE part
@@ -273,6 +271,67 @@ def test_policies(save_name = 'trajectory.csv'):
             print reward, global_reward
             best_reward = global_reward
 
+def best_performance_trajectory(parameters, gridworld, teams, save_name='best_performance_traj.csv'):
+    trajectory_log = []
+    gridworld.reset(teams)  # Reset board
+    # mod.dispGrid(gridworld)
+    for steps in range(parameters.total_steps):  # One training episode till goal is not reached
+        ig_traj_log = []
+        for id, agent in enumerate(gridworld.agent_list_scout):  # get all the action choices from the agents
+            if steps == 0: agent.perceived_state = gridworld.get_state(agent, is_Scout=True)  # Update all agent's perceived state
+            agent.take_action(teams[id])  # Make the agent take action using the Evo-net with given id from the population
+            ig_traj_log.append(agent.position[0])
+            ig_traj_log.append(agent.position[1])
+
+        for id, agent in enumerate(gridworld.agent_list_service_bot):  # get all the action choices from the agents
+            if steps == 0: agent.perceived_state = gridworld.get_state(agent, is_Scout=False)  # Update all agent's perceived state
+            agent.take_action(teams[id + parameters.num_agents_scout])  # Make the agent take action using the Evo-net with given id from the population
+            ig_traj_log.append(agent.position[0])
+            ig_traj_log.append(agent.position[1])
+
+
+
+        for poi in gridworld.poi_list:
+            ig_traj_log.append(poi.position[0])
+            ig_traj_log.append(poi.position[1])
+
+        trajectory_log.append(np.array(ig_traj_log))
+        gridworld.move()  # Move gridworld
+
+        # mod.dispGrid(gridworld)
+        # raw_input('E')
+
+        gridworld.update_poi_observations()  # Figure out the POI observations and store all credit information
+        if parameters.is_poi_move: gridworld.poi_move()
+
+        for id, agent in enumerate(gridworld.agent_list_scout): agent.referesh(teams[id], gridworld)  # Update state and learn if applicable
+        for id, agent in enumerate(gridworld.agent_list_service_bot): agent.referesh(teams[id], gridworld)  # Update state and learn if applicable
+
+        if gridworld.check_goal_complete(): break  # If all POI's observed
+
+    # Log final position
+    ig_traj_log = []
+    for agent in gridworld.agent_list_scout:
+        ig_traj_log.append(agent.position[0])
+        ig_traj_log.append(agent.position[1])
+
+    for agent in gridworld.agent_list_service_bot:
+        ig_traj_log.append(agent.position[0])
+        ig_traj_log.append(agent.position[1])
+
+    for poi in gridworld.poi_list:
+        ig_traj_log.append(poi.position[0])
+        ig_traj_log.append(poi.position[1])
+    trajectory_log.append(np.array(ig_traj_log))
+    rewards, global_reward = gridworld.get_reward(teams)
+
+    #Save trajectory to file
+    comment = [parameters.num_agents_scout, parameters.num_agents_service_bot, parameters.num_poi] + [0] * (
+    len(trajectory_log[0]) - 3)
+    trajectory_log = [comment] + trajectory_log
+    trajectory_log = np.array(trajectory_log)
+    np.savetxt(save_name, trajectory_log, delimiter=',', fmt='%10.5f')
+
 
 num_evals = 5
 def evolve(gridworld, parameters, generation, best_hof_score):
@@ -336,7 +395,9 @@ def evolve(gridworld, parameters, generation, best_hof_score):
         if global_reward > best_global:
             epoch_best_team = np.copy(teams)  # Store the best team from current epoch
             best_global = global_reward; #Store the best global performance
-            if global_reward > best_hof_score: best_team = np.copy(teams) #Store the best team ever seen (HOF)
+            if global_reward > best_hof_score:
+                best_team = np.copy(teams) #Store the best team ever seen (HOF)
+                best_performance_trajectory(parameters, gridworld, teams)
 
 
         #ENCODE FITNESS BACK TO AGENT and ALSO consider fuel cost
@@ -526,7 +587,7 @@ if __name__ == "__main__":
         #for agent in gridworld.agent_list: print agent.evo_net.hof_net
         #continue
         if parameters.use_neat and not parameters.use_py_neat :
-            print 'Gen:', gen, ' D' if parameters.D_reward else ' G',  ' Best g_reward', int(best_global * 100), ' Avg:', int(100 * tracker.avg_fitness), 'Fuel:', 'ON' if parameters.is_fuel else 'Off' , '  Time_offset type:', 'Hard' if parameters.is_hard_time_offset else 'Soft', 'Time_offset: ', parameters.time_offset #, 'Delta MPC:', int(tracker.avg_mpc), '+-', int(tracker.mpc_std), 'Elapsed Time: ', elapsed #' Delta generations Survival: '      #for i in range(num_agents): print all_pop[i].delta_age / params.PopulationSize,
+            print 'Gen:', gen, ' D' if parameters.D_reward else ' G',  ' Best g_reward', int(best_global * 100), ' Avg:', int(100 * tracker.avg_fitness), '  BEST HOF SCORE: ', best_hof_score,  '  Fuel:', 'ON' if parameters.is_fuel else 'Off' , '  Time_offset type:', 'Hard' if parameters.is_hard_time_offset else 'Soft', 'Time_offset: ', parameters.time_offset #, 'Delta MPC:', int(tracker.avg_mpc), '+-', int(tracker.mpc_std), 'Elapsed Time: ', elapsed #' Delta generations Survival: '      #for i in range(num_agents): print all_pop[i].delta_age / params.PopulationSize,
 
         else:
             print 'Gen:', gen, 'Reward shaping: ',' Difference   ' if parameters.D_reward else ' Global   ', ' Best global', int(best_global * 100), ' Avg:', int(100 * tracker.avg_fitness), 'Best hof_score: ', best_hof_score
