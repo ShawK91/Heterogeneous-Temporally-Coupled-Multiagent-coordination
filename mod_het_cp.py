@@ -9,11 +9,10 @@ import math
 import MultiNEAT as NEAT
 import numpy as np, time
 import random
-import pickle
+#import pickle
 #import neat as py_neat
-from neat import nn
+#from neat import nn
 import sys,os
-
 
 class Hof_util():
     def agent_simulation(self, gridworld, parameters, agent_sub_pop=None, agent_index=None): #Put an agent in a HOF team
@@ -488,6 +487,21 @@ class Agent_scout:
             grid.state[x][y] = 1
             return [x,y]
 
+
+        if self.parameters.aamas_domain == 1:  # AAMAS test domain
+            if self.team_role_index == 0:
+                x = 9; y = 9
+            elif self.team_role_index == 1:
+                x = 9; y = 10
+            elif self.team_role_index == 2:
+                x = 10; y = 9
+            elif self.team_role_index == 3:
+                x = 10; y = 10
+
+            grid.state[x][y] = 1
+            return [x, y]
+
+
         if self.parameters.domain_setup != 0:  # Known domain testing
             if self.parameters.domain_setup == 1:
                 x = 4; y = 4
@@ -662,6 +676,26 @@ class Agent_service_bot:
         rad = int(grid.dim_row / math.sqrt(3) / 3)
         center = int((start + end) / 2)
 
+        if self.parameters.aamas_domain == 1:  # AAMAS test domain
+            if self.team_role_index == 0:
+                x = 9; y = 8
+            elif self.team_role_index == 1:
+                x = 9; y = 11
+            elif self.team_role_index == 2:
+                x = 10; y = 8
+            elif self.team_role_index == 3:
+                x = 10; y = 11
+            elif self.team_role_index == 4:
+                x = 8; y = 9
+            elif self.team_role_index == 5:
+                x = 11; y = 9
+            elif self.team_role_index == 6:
+                x = 8; y = 10
+            elif self.team_role_index == 7:
+                x = 11; y = 10
+
+            grid.state[x][y] = 4
+            return [x, y]
 
         if self.parameters.domain_setup != 0:  # Known domain testing
             if self.parameters.domain_setup == 1:
