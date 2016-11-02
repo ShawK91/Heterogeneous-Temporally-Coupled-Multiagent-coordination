@@ -17,17 +17,15 @@ class Parameters:
         self.aamas_domain = 1
         if self.aamas_domain == 1:
             #Plastic vars
-            self.wheel_action = 1
             self.D_reward = 1
             self.is_hard_time_offset = 1
             self.is_fuel = 0
-
-            # POI motion
             self.is_poi_move = 1  # POI move periodically
 
 
             #Constant Vars
             if True:
+                self.wheel_action = 0
                 self.poi_motion_probability = 0.25  # [0.0-1.0] probability
                 self.time_offset = 3
                 self.population_size = 100

@@ -1077,7 +1077,7 @@ class Gridworld:
             elif action == 2: next_pos[0] += 2  # Down
             elif action == 3: next_pos[1] -= 2  # Left
             elif action == 4: next_pos[0] -= 2  # Up
-            if action != 0: agent.fuel -= 0.15/(1.0 * self.parameters.total_steps)
+            if action != 0: agent.fuel -= 0.1/(1.0 * self.parameters.total_steps)
 
             # Computer reward and check illegal moves
             x = next_pos[0]; y = next_pos[1]
@@ -1102,7 +1102,7 @@ class Gridworld:
             elif action == 2: next_pos[0] += 1  # Down
             elif action == 3: next_pos[1] -= 1  # Left
             elif action == 4: next_pos[0] -= 1  # Up
-            if action != 0: agent.fuel -= 0.3 / (1.0 * self.parameters.total_steps)
+            if action != 0: agent.fuel -= 0.2/ (1.0 * self.parameters.total_steps)
 
             # Computer reward and check illegal moves
             x = next_pos[0]; y = next_pos[1]
