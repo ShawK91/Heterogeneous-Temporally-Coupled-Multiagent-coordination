@@ -1310,82 +1310,11 @@ class Gridworld:
                 entry[1] -= 1
                 if entry[1] < 0: poi.activation_log.pop(entry_id)
 
-
-
-
-
     def check_goal_complete(self):
         is_complete = True
         for poi in self.poi_list:
             is_complete *= poi.is_observed
         return is_complete
-
-    def old_get_reward(self, teams):
-        global_reward = 0 #Global reward obtained
-        for poi in self.poi_list:
-            if self.parameters.reward_scheme == 2:
-                global_reward += 1.0 * poi.is_observed * poi.is_scouted
-            else:
-                global_reward += 1.0 * poi.is_observed
-
-        global_reward /= self.parameters.num_poi #Scale between 0 and 1
-
-        rewards = np.zeros(self.parameters.num_agents_scout + self.parameters.num_agents_service_bot) #Rewards decomposed to the team
-        if self.parameters.is_fuel:
-            for i in range((self.parameters.num_agents_scout + self.parameters.num_agents_service_bot)):
-                if i < self.parameters.num_agents_scout:
-                    rewards[i] += self.agent_list_scout[i].fuel
-                    global_reward += self.agent_list_scout[i].fuel/self.parameters.num_agents_scout
-                else:
-                    index = i - self.parameters.num_agents_scout
-                    rewards[i] += self.agent_list_service_bot[index].fuel
-                    global_reward += self.agent_list_service_bot[index].fuel/self.parameters.num_agents_service_bot
-
-        if self.parameters.is_service_cost:
-            for i in range(self.parameters.num_agents_service_bot):
-                rewards[i] += self.agent_list_service_bot[i].service_cost
-                global_reward += self.agent_list_service_bot[i].service_cost/self.parameters.num_agents_service_bot
-
-        if self.parameters.D_reward: #Difference reward scheme
-            for poi in self.poi_list:
-                ig_scheme = False #Controls if POI is observed according to reward scheme requirements
-                if self.parameters.reward_scheme == 2:
-                    if poi.is_observed and poi.is_scouted: ig_scheme = True
-                else:
-                    if poi.is_observed: ig_scheme = True
-
-                if ig_scheme: #If POI observed according to reward scheme requirements
-                    #print poi.is_scouted
-                    no_reward = False
-
-                    # Check if over-observed (service_bot)
-                    for ids in poi.observation_history:
-                        if len(ids) > self.parameters.coupling:  # Only if it's observed by exactly the numbers needed
-                            no_reward = True;
-                            break;
-
-                    # Service_bots rewards
-                    if not no_reward:
-                        for agent_id in poi.observation_history[0]:
-                            rewards[self.num_agents_scout+ agent_id] += 1.0 / self.parameters.num_poi  # Reward the first group of agents to get there
-
-                    # Check if over-observed (Scout)
-                    no_reward = False
-                    for ids in poi.scout_history:
-                        if len(ids) > self.parameters.coupling:  # Only if it's observed by exactly the numbers needed
-                            no_reward = True;
-                            break;
-
-                    # Scouts rewards
-                    if not no_reward and poi.is_scouted:
-                        for agent_id in poi.scout_history[0]:
-                            rewards[agent_id] += 1.0 / self.parameters.num_poi  # Reward the first group of agents to get there
-
-
-        else:
-            rewards += global_reward  # Global reward scheme
-
-        return rewards, global_reward
 
     def get_reward(self, teams):
         global_reward = 0 #Global reward obtained
@@ -1400,11 +1329,11 @@ class Gridworld:
         if self.parameters.is_fuel:
             for i in range((self.parameters.num_agents_scout + self.parameters.num_agents_service_bot)):
                 if i < self.parameters.num_agents_scout:
-                    rewards[i] += self.agent_list_scout[i].fuel
+                    rewards[i] += self.agent_list_scout[i].fuel + 1.0 #Make it positive
                     global_reward += self.agent_list_scout[i].fuel/self.parameters.num_agents_scout
                 else:
                     index = i - self.parameters.num_agents_scout
-                    rewards[i] += self.agent_list_service_bot[index].fuel
+                    rewards[i] += self.agent_list_service_bot[index].fuel + 1.0 #Make it positive
                     global_reward += self.agent_list_service_bot[index].fuel/self.parameters.num_agents_service_bot
 
         if self.parameters.is_service_cost:
@@ -1443,9 +1372,9 @@ class Gridworld:
                         for agent_id in unique_scouts:
                             rewards[agent_id] += 1.0 / self.parameters.num_poi  # Reward the first group of agents to get there
 
-        else:
+        else: #G reward
+            rewards = np.zeros(self.parameters.num_agents_scout + self.parameters.num_agents_service_bot)
             rewards += global_reward  # Global reward scheme
-
         return rewards, global_reward
 
     def poi_move(self):
